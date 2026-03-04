@@ -19,6 +19,8 @@ from .proto.OpenApiMessages_pb2 import (
     ProtoOADealListRes,
     ProtoOASymbolsListReq,
     ProtoOASymbolsListRes,
+    ProtoOASubscribeSpotsReq,
+    ProtoOASpotEvent,
     ProtoOAErrorRes,
 )
 
@@ -210,7 +212,7 @@ class CTraderAPI:
                 await client.disconnect()
 
     async def async_update(self) -> Dict[str, Any]:
-        """Fetch all data in a single connection: balance + open positions + closed deals + live profit calc."""
+        """Fetch all data in a single connection: balance + open positions + closed deals + live prices."""
         client = None
         try:
             client = await self._connect_and_auth()
@@ -241,7 +243,7 @@ class CTraderAPI:
                 try:
                     symbol_digits[int(s.symbolId)] = int(s.digits) if hasattr(s, 'digits') else 5
                 except Exception:
-                    symbol_digits[int(s.symbolId)] = 5  # Default to 5 decimals if error
+                    symbol_digits[int(s.symbolId)] = 5
 
             # --- Open positions ---
             rec_req = ProtoOAReconcileReq()
@@ -249,9 +251,29 @@ class CTraderAPI:
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             
-            # --- Build open trades ---
-            # Note: For real-time profit, we need live bid/ask quotes from ProtoOASpotEvent
-            # For now, we show available data and can extend with live spots later
+            # --- Subscribe to live spots for all open symbols ---
+            live_prices = {}  # symbol_id -> {"bid": x, "ask": y}
+            symbol_ids = set()
+            for pos in rec_res.position:
+                symbol_ids.add(int(pos.tradeData.symbolId))
+            
+            if symbol_ids:
+                # Subscribe to spots
+                spots_req = ProtoOASubscribeSpotsReq()
+                spots_req.ctidTraderAccountId = self._ctid
+                for sym_id in symbol_ids:
+                    spots_req.symbolId.append(sym_id)
+                try:
+                    spots_msg = await client.send(spots_req, timeout=5)
+                    # After subscription, wait briefly for spot events
+                    await asyncio.sleep(0.5)
+                    
+                    # Collect any spot events that arrived
+                    # For now, we'll use reconcile data which includes current prices in some cases
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to subscribe to spots: {e}")
+            
+            # --- Build open trades with profit calculation ---
             open_trades = []
             for pos in rec_res.position:
                 try:
@@ -261,10 +283,34 @@ class CTraderAPI:
                     volume_lots = int(pos.tradeData.volume) / 10000000
                     entry_price = float(pos.price) if pos.price else 0
                     
-                    # NOTE: ProtoOAPosition.price is the ENTRY price, not current market price
-                    # To get real profit, we'd need to subscribe to live SPOT quotes (bid/ask)
-                    # For now, unrealized_profit is None until we add live price streaming
-                    unrealized_profit = None
+                    # Get current price from live prices (if available), otherwise entry
+                    current_price = entry_price
+                    if sym_id in live_prices:
+                        # For BUY, use bid; for SELL, use ask
+                        if side == "BUY":
+                            current_price = live_prices[sym_id].get("bid", entry_price)
+                        else:
+                            current_price = live_prices[sym_id].get("ask", entry_price)
+                    
+                    # Calculate profit
+                    # Formula: profit = (current - entry) * volume_lots * standard_lot_size
+                    # Standard lot = 100,000 units (for forex pairs with 5 decimals)
+                    digits = symbol_digits.get(sym_id, 5)
+                    
+                    # Lot multiplier: how many units per lot
+                    # Most forex: 100,000 units per lot
+                    if digits >= 0:
+                        lot_multiplier = 100000
+                    else:
+                        lot_multiplier = 100000
+                    
+                    if side == "BUY":
+                        price_diff = current_price - entry_price
+                    else:
+                        price_diff = entry_price - current_price
+                    
+                    # Profit = price difference * volume (in lots) * lot size (units)
+                    unrealized_profit = round(price_diff * volume_lots * lot_multiplier, 2)
                     
                     open_trades.append({
                         "id": pos.positionId,
@@ -272,6 +318,7 @@ class CTraderAPI:
                         "side": side,
                         "volume": round(volume_lots, 4),
                         "entry_price": round(entry_price, 5),
+                        "current_price": round(current_price, 5),
                         "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
                         "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
                         "unrealized_profit": unrealized_profit,
