@@ -128,6 +128,16 @@ class CTraderOpenTradesCountSensor(CoordinatorEntity, SensorEntity):
             return len(open_trades)
         return 0
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return extra attributes with open trade details."""
+        if self.coordinator.data:
+            open_trades = self.coordinator.data.get("open_trades", [])
+            return {
+                "open_trades": open_trades,
+            }
+        return {}
+
 
 class CTraderClosedTradesSensor(CoordinatorEntity, SensorEntity):
     """Sensor for recent closed trades info."""
