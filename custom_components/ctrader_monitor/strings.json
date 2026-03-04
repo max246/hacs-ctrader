@@ -13,9 +13,10 @@
       },
       "auth_code": {
         "title": "Authorize & Enter Code",
-        "description": "1. Open this link in your browser to authorize:\n\n{auth_uri}\n\n2. Log in with your cTID and click **Allow access**.\n3. You'll be redirected — copy the `code=` value from the URL and paste it below.",
+        "description": "1. Copy the authorization URL below and open it in your browser.\n2. Log in with your cTID and click **Allow access**.\n3. You'll be redirected — copy the `code=` value from the URL and paste it in the Authorization Code field.",
         "data": {
-          "authorization_code": "Authorization Code"
+          "auth_url": "Authorization URL (copy and open in browser)",
+          "authorization_code": "Authorization Code (from the redirect URL)"
         }
       }
     },

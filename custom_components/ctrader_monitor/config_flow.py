@@ -7,23 +7,13 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.network import get_url
 
 from .api import CTraderAPI
 
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "ctrader_monitor"
-OAUTH_CALLBACK_PATH = "/auth/external/callback"
-
-
-def build_redirect_uri(hass) -> str:
-    """Build the redirect URI from HA's own URL."""
-    try:
-        ha_url = get_url(hass, allow_internal=True, allow_ip=True)
-        return f"{ha_url.rstrip('/')}{OAUTH_CALLBACK_PATH}"
-    except Exception:
-        return f"http://localhost:8123{OAUTH_CALLBACK_PATH}"
+DEFAULT_REDIRECT_URI = "http://localhost:8080/callback"
 
 
 async def exchange_authorization_code(
@@ -87,7 +77,6 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Step 1: collect app credentials + redirect URI."""
         errors: Dict[str, str] = {}
-        default_redirect = build_redirect_uri(self.hass)
 
         if user_input is not None:
             self.client_id = user_input["client_id"]
@@ -102,7 +91,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("client_id"): str,
                 vol.Required("client_secret"): str,
                 vol.Required("account_id"): str,
-                vol.Required("redirect_uri", default=default_redirect): str,
+                vol.Required("redirect_uri", default=DEFAULT_REDIRECT_URI): str,
             }),
             errors=errors,
         )
@@ -123,7 +112,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             code = user_input["authorization_code"].strip()
-
+            # Ignore the auth_url field — it's just there for the user to copy
             token_response = await exchange_authorization_code(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -155,10 +144,10 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="auth_code",
             data_schema=vol.Schema({
+                vol.Required("auth_url", default=auth_uri): str,
                 vol.Required("authorization_code"): str,
             }),
             errors=errors,
-            description_placeholders={"auth_uri": auth_uri},
         )
 
 
