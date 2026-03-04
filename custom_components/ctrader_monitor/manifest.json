@@ -1,11 +1,11 @@
 {
   "domain": "ctrader_monitor",
   "name": "cTrader Monitor",
-  "icon": "images/logo.png",
+  "icon": "mdi:chart-line",
   "codeowners": ["@max246"],
   "config_flow": true,
   "documentation": "https://github.com/max246/hacs-ctrader",
   "requirements": ["aiohttp>=3.8.0", "protobuf>=3.20.0"],
-  "version": "2.0.3",
+  "version": "2.0.4",
   "homeassistant": "2024.1.0"
 }
