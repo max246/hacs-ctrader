@@ -13,8 +13,8 @@ from .proto.OpenApiMessages_pb2 import (
     ProtoOATraderRes,
     ProtoOAReconcileReq,
     ProtoOAReconcileRes,
-    ProtoOAGetDealListReq,
-    ProtoOAGetDealListRes,
+    ProtoOADealListReq,
+    ProtoOADealListRes,
     ProtoOASymbolsListReq,
     ProtoOASymbolsListRes,
 )
@@ -221,13 +221,13 @@ class CTraderAPI:
                 })
 
             # --- Closed deals (last 7 days) ---
-            deal_req = ProtoOAGetDealListReq()
+            deal_req = ProtoOADealListReq()
             deal_req.ctidTraderAccountId = self.account_id
             deal_req.fromTimestamp = int((time.time() - 7 * 24 * 3600) * 1000)
             deal_req.toTimestamp = int(time.time() * 1000)
             deal_req.maxRows = 20
             deal_msg = await client.send(deal_req)
-            deal_res = _extract(deal_msg, ProtoOAGetDealListRes)
+            deal_res = _extract(deal_msg, ProtoOADealListRes)
             closed_trades = []
             for deal in deal_res.deal:
                 side = "BUY" if deal.tradeSide == 1 else "SELL"
