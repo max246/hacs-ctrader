@@ -114,7 +114,7 @@ entities:
   - sensor.ctrader_open_trades
 ```
 
-### Open Trades Card
+### Open Trades Card (Enhanced)
 
 ```yaml
 type: markdown
@@ -123,12 +123,19 @@ content: >
   {% set trades = state_attr('sensor.ctrader_open_trades', 'open_trades') %}
   {% if trades and trades | length > 0 %}
   {% for t in trades %}
-  **{{ t.symbol }}** · {{ t.side }} · {{ t.volume }} lots<br>
-  📍 Entry: `{{ t.entry_price }}`{% if t.stop_loss %} · SL: `{{ t.stop_loss }}`{% endif %}{% if t.take_profit %} · TP: `{{ t.take_profit }}`{% endif %}
-  <br><br>
+  **{{ t.symbol }}** | {{ t.side }} | {{ "%.4f" % t.volume }} lots
+  {% if t.unrealized_profit is not none %}
+    | {{ '🟢' if t.unrealized_profit >= 0 else '🔴' }} **${{'%.2f' % t.unrealized_profit}}**
+  {% endif %}<br>
+  📍 Entry: **{{ t.entry_price }}**
+  {% if t.current_price %} | Current: **{{ t.current_price }}**{% endif %}<br>
+  {% if t.stop_loss or t.take_profit %}
+  🛑 SL: {% if t.stop_loss %}`{{ t.stop_loss }}`{% else %}-{% endif %} | 🎯 TP: {% if t.take_profit %}`{{ t.take_profit }}`{% else %}-{% endif %}<br>
+  {% endif %}
+  <br>
   {% endfor %}
   {% else %}
-  No open positions 🟢
+  ✅ No open positions
   {% endif %}
 ```
 

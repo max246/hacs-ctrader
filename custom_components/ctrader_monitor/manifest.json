@@ -6,6 +6,6 @@
   "config_flow": true,
   "documentation": "https://github.com/max246/hacs-ctrader",
   "requirements": ["aiohttp>=3.8.0", "protobuf>=3.20.0"],
-  "version": "2.0.8",
+  "version": "2.0.9",
   "homeassistant": "2024.1.0"
 }
