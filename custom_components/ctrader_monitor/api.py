@@ -247,21 +247,17 @@ class CTraderAPI:
                 side = "BUY" if pos.tradeData.tradeSide == 1 else "SELL"
                 sym = symbol_map.get(int(pos.tradeData.symbolId), f"#{pos.tradeData.symbolId}")
                 
-                # Calculate unrealized profit if available
-                unrealized_profit = None
-                if pos.HasField("unrealizedGrossPnl") and trader.moneyDigits:
-                    unrealized_profit = round(pos.unrealizedGrossPnl / divisor, 2)
-                
+                # Note: Unrealized profit calculation requires live bid/ask quotes
+                # For now, we show entry price + used margin. Full P&L needs live spots.
                 open_trades.append({
                     "id": pos.positionId,
                     "symbol": sym,
                     "side": side,
                     "volume": int(pos.tradeData.volume) / 10000000,
                     "entry_price": round(pos.price, 5),
-                    "current_price": round(pos.currentPrice, 5) if pos.HasField("currentPrice") else None,
                     "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
                     "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
-                    "unrealized_profit": unrealized_profit,
+                    "used_margin": round(pos.usedMargin, 2) if pos.usedMargin else None,
                 })
 
             # --- Closed deals (last 7 days) ---
