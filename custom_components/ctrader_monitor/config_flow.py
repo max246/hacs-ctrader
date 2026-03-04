@@ -17,7 +17,10 @@ DOMAIN = "ctrader_monitor"
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("access_token"): str,
+        vol.Required("refresh_token"): str,
         vol.Required("account_id"): str,
+        vol.Required("client_id"): str,
+        vol.Required("client_secret"): str,
     }
 )
 
@@ -26,7 +29,10 @@ async def validate_input(hass: HomeAssistant, data: dict) -> dict:
     """Validate the user input allows us to connect."""
     api = CTraderAPI(
         access_token=data["access_token"],
+        refresh_token=data["refresh_token"],
         account_id=data["account_id"],
+        client_id=data["client_id"],
+        client_secret=data["client_secret"],
     )
     
     try:

@@ -105,21 +105,25 @@ Replace:
 
 1. **Settings → Devices & Services**
 2. Search for **cTrader Monitor**
-3. Enter:
-   - **Access Token** (from step 4)
+3. Enter all OAuth credentials:
+   - **Access Token** (from step 4 response)
+   - **Refresh Token** (from step 4 response)
+   - **Client ID** (from app credentials)
+   - **Client Secret** (from app credentials)
    - **Account ID** (from step 5)
 
-### Token Refresh (After ~30 Days)
+### Automatic Token Refresh ✅
 
-When your access token expires, refresh it using:
+The integration automatically handles token refresh! Here's what happens:
 
-```bash
-curl -X POST 'https://openapi.ctrader.com/apps/token?grant_type=refresh_token&refresh_token={REFRESH_TOKEN}&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}'
-```
+- ✅ Monitors token expiry (tokens last ~30 days)
+- ✅ Refreshes token automatically 5 minutes before expiry
+- ✅ Stores new tokens in Home Assistant config
+- ✅ No manual intervention needed
 
-You'll get a new `accessToken` — update it in Home Assistant settings.
+The `refresh_token` is the key — it never expires and allows unlimited refreshes.
 
-**Security Note:** Keep all tokens private. They grant read access to your account data.
+**Security Note:** Keep all tokens/credentials private. Store them only in Home Assistant config.
 
 ## Sensors
 

@@ -7,24 +7,101 @@ from typing import Any, Dict, Optional
 _LOGGER = logging.getLogger(__name__)
 
 CTRADER_API_URL = "https://openapi.ctrader.com/v2"
+CTRADER_TOKEN_URL = "https://openapi.ctrader.com/apps/token"
 
 
 class CTraderAPI:
     """cTrader API client for fetching account data.
     
-    Note: Access tokens expire after ~30 days. You'll need to refresh using
-    the refresh_token obtained during OAuth authentication via:
-    https://openapi.ctrader.com/apps/token?grant_type=refresh_token&refresh_token={refresh_token}&client_id={client_id}&client_secret={client_secret}
+    Automatically handles token refresh. Access tokens expire after ~30 days,
+    and refresh_token is used to obtain a new access_token automatically.
     """
 
-    def __init__(self, access_token: str, account_id: str):
+    def __init__(
+        self,
+        access_token: str,
+        refresh_token: str,
+        account_id: str,
+        client_id: str,
+        client_secret: str,
+    ):
         """Initialize API client."""
         self.access_token = access_token
+        self.refresh_token = refresh_token
         self.account_id = account_id
+        self.client_id = client_id
+        self.client_secret = client_secret
         self.session: Optional[aiohttp.ClientSession] = None
+        self.token_expiry: Optional[float] = None
+
+    async def _refresh_token(self) -> bool:
+        """Refresh the access token using refresh_token.
+        
+        Returns True if successful, False otherwise.
+        """
+        if not self.refresh_token:
+            _LOGGER.error("No refresh token available")
+            return False
+        
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+        
+        params = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
+        
+        try:
+            async with self.session.get(
+                CTRADER_TOKEN_URL,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if "accessToken" in data:
+                        self.access_token = data["accessToken"]
+                        if "refreshToken" in data:
+                            self.refresh_token = data["refreshToken"]
+                        if "expiresIn" in data:
+                            self.token_expiry = time.time() + data["expiresIn"]
+                        _LOGGER.info("Access token refreshed successfully")
+                        return True
+                    else:
+                        _LOGGER.error(f"Token refresh failed: {data.get('description', 'Unknown error')}")
+                        return False
+                else:
+                    _LOGGER.error(f"Token refresh request failed: {resp.status}")
+                    return False
+        except Exception as e:
+            _LOGGER.error(f"Token refresh exception: {e}")
+            return False
+
+    async def _check_and_refresh_token(self) -> bool:
+        """Check if token needs refresh and refresh if necessary.
+        
+        Returns False if token is invalid/expired and can't be refreshed.
+        """
+        if not self.token_expiry:
+            # Set expiry to ~30 days from now if not set
+            self.token_expiry = time.time() + (30 * 24 * 60 * 60)
+        
+        # Refresh if expiry is within 5 minutes
+        if time.time() >= (self.token_expiry - 300):
+            _LOGGER.info("Token expiry approaching, refreshing...")
+            return await self._refresh_token()
+        
+        return True
 
     async def _request(self, method: str, endpoint: str) -> Dict[str, Any]:
         """Make an HTTP request to cTrader API."""
+        # Check and refresh token if needed
+        if not await self._check_and_refresh_token():
+            _LOGGER.error("Failed to refresh access token")
+            return None
+        
         if not self.session:
             self.session = aiohttp.ClientSession()
         
@@ -40,14 +117,14 @@ class CTraderAPI:
                 if resp.status == 200:
                     return await resp.json()
                 elif resp.status == 401:
-                    _LOGGER.error("Authentication failed - check access token")
+                    _LOGGER.error("Authentication failed - token may be invalid")
+                    # Try refreshing once more
+                    if await self._refresh_token():
+                        return await self._request(method, endpoint)
                     return None
                 else:
                     _LOGGER.error(f"API error: {resp.status}")
                     return None
-        except asyncio.TimeoutError:
-            _LOGGER.error("API request timeout")
-            return None
         except Exception as e:
             _LOGGER.error(f"API request failed: {e}")
             return None

@@ -3,15 +3,18 @@
     "step": {
       "user": {
         "title": "Connect to cTrader",
-        "description": "Complete the OAuth 2.0 authentication flow first:\n\n1. Register app at https://openapi.ctrader.com\n2. Get Spotware approval\n3. Follow auth flow: https://help.ctrader.com/open-api/account-authentication/#authentication-flow\n4. Exchange authorization code for access token\n5. Find your Account ID in cTrader platform\n\nThen paste your Access Token and Account ID below.",
+        "description": "Complete the OAuth 2.0 authentication flow first:\n\n1. Register app at https://openapi.ctrader.com\n2. Get Spotware approval\n3. Follow auth flow: https://help.ctrader.com/open-api/account-authentication/#authentication-flow\n4. Exchange authorization code for tokens\n5. Find your Account ID in cTrader platform\n\nPaste the values you received from the OAuth flow:\n- Access Token (from token response)\n- Refresh Token (from token response)\n- Client ID (from app credentials)\n- Client Secret (from app credentials)\n- Account ID (your cTID account number)\n\nThe integration will automatically refresh your access token when needed.",
         "data": {
-          "access_token": "Access Token (from OAuth auth flow)",
-          "account_id": "Account ID (your cTID trader account number)"
+          "access_token": "Access Token (from OAuth token response)",
+          "refresh_token": "Refresh Token (from OAuth token response)",
+          "account_id": "Account ID (your cTID trader account)",
+          "client_id": "Client ID (from app credentials)",
+          "client_secret": "Client Secret (from app credentials)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid credentials. Check:\n- Access token is valid (from OAuth flow)\n- Token hasn't expired (~30 days)\n- Token has read-only scope\n- Account ID matches authorized account"
+      "invalid_auth": "Invalid credentials. Check:\n- All tokens and credentials are correct\n- Access token is valid (from OAuth flow)\n- Refresh token is valid\n- Account ID matches authorized account"
     },
     "abort": {
       "already_configured": "This cTrader account is already configured"
