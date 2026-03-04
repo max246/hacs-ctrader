@@ -1,21 +1,121 @@
-"""cTrader API Client."""
+"""cTrader API Client using asyncio TCP + ProtoBuf (ctrader-open-api messages)."""
+import asyncio
 import logging
-import aiohttp
+import struct
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from ctrader_open_api import Protobuf, EndPoints
+from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import ProtoMessage
+from ctrader_open_api.messages.OpenApiMessages_pb2 import (
+    ProtoOAApplicationAuthReq,
+    ProtoOAApplicationAuthRes,
+    ProtoOAAccountAuthReq,
+    ProtoOAAccountAuthRes,
+    ProtoOATraderReq,
+    ProtoOATraderRes,
+    ProtoOAReconcileReq,
+    ProtoOAReconcileRes,
+    ProtoOAGetDealListReq,
+    ProtoOAGetDealListRes,
+    ProtoOARefreshTokenReq,
+    ProtoOARefreshTokenRes,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-CTRADER_API_URL = "https://openapi.ctrader.com/v2"
+DEMO_HOST = EndPoints.PROTOBUF_DEMO_HOST
+LIVE_HOST = EndPoints.PROTOBUF_LIVE_HOST
+PORT = EndPoints.PROTOBUF_PORT
+
 CTRADER_TOKEN_URL = "https://openapi.ctrader.com/apps/token"
 
 
+class CTraderProtoClient:
+    """Asyncio-native TCP client for cTrader ProtoBuf API."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self._reader: Optional[asyncio.StreamReader] = None
+        self._writer: Optional[asyncio.StreamWriter] = None
+        self._pending: Dict[int, asyncio.Future] = {}
+        self._msg_id = 1
+        self._listener_task: Optional[asyncio.Task] = None
+
+    async def connect(self):
+        """Open TCP connection to cTrader."""
+        self._reader, self._writer = await asyncio.open_connection(self.host, self.port, ssl=True)
+        self._listener_task = asyncio.create_task(self._listen())
+        _LOGGER.debug(f"Connected to {self.host}:{self.port}")
+
+    async def disconnect(self):
+        """Close TCP connection."""
+        if self._listener_task:
+            self._listener_task.cancel()
+        if self._writer:
+            self._writer.close()
+            await self._writer.wait_closed()
+
+    def _next_id(self) -> int:
+        mid = self._msg_id
+        self._msg_id += 1
+        return mid
+
+    async def send(self, request_msg, timeout: int = 10) -> Any:
+        """Send a ProtoBuf message and await the response."""
+        msg_id = self._next_id()
+
+        # Wrap in ProtoMessage envelope
+        proto_msg = ProtoMessage()
+        proto_msg.payloadType = request_msg.payloadType
+        proto_msg.payload = request_msg.SerializeToString()
+        proto_msg.clientMsgId = str(msg_id)
+
+        data = proto_msg.SerializeToString()
+        # Frame: 4-byte big-endian length prefix
+        frame = struct.pack(">I", len(data)) + data
+
+        fut = asyncio.get_event_loop().create_future()
+        self._pending[msg_id] = fut
+
+        self._writer.write(frame)
+        await self._writer.drain()
+
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError:
+            self._pending.pop(msg_id, None)
+            raise TimeoutError(f"No response for msg_id={msg_id}")
+
+    async def _listen(self):
+        """Background task: read frames and resolve pending futures."""
+        try:
+            while True:
+                # Read 4-byte length prefix
+                raw_len = await self._reader.readexactly(4)
+                length = struct.unpack(">I", raw_len)[0]
+                raw_data = await self._reader.readexactly(length)
+
+                proto_msg = ProtoMessage()
+                proto_msg.ParseFromString(raw_data)
+
+                msg_id = int(proto_msg.clientMsgId) if proto_msg.clientMsgId else None
+                if msg_id and msg_id in self._pending:
+                    self._pending.pop(msg_id).set_result(proto_msg)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            _LOGGER.error(f"Listener error: {e}")
+            # Resolve all pending futures with exception
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.set_exception(e)
+            self._pending.clear()
+
+
 class CTraderAPI:
-    """cTrader API client for fetching account data.
-    
-    Automatically handles token refresh. Access tokens expire after ~30 days,
-    and refresh_token is used to obtain a new access_token automatically.
-    """
+    """High-level cTrader API — handles auth + data queries."""
 
     def __init__(
         self,
@@ -24,151 +124,200 @@ class CTraderAPI:
         account_id: str,
         client_id: str,
         client_secret: str,
+        environment: str = "demo",
     ):
-        """Initialize API client."""
         self.access_token = access_token
         self.refresh_token = refresh_token
-        self.account_id = account_id
+        self.account_id = int(account_id)
         self.client_id = client_id
         self.client_secret = client_secret
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.token_expiry: Optional[float] = None
+        self.host = DEMO_HOST if environment == "demo" else LIVE_HOST
+        self.token_expiry: float = time.time() + (30 * 24 * 60 * 60)
 
-    async def _refresh_token(self) -> bool:
-        """Refresh the access token using refresh_token.
-        
-        Returns True if successful, False otherwise.
-        """
-        if not self.refresh_token:
-            _LOGGER.error("No refresh token available")
-            return False
-        
-        if not self.session:
-            self.session = aiohttp.ClientSession()
-        
-        params = {
-            "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-        }
-        
+    async def _run(self, coro):
+        """Connect, authenticate, run a coroutine, disconnect."""
+        client = CTraderProtoClient(self.host, PORT)
         try:
-            async with self.session.get(
-                CTRADER_TOKEN_URL,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if "accessToken" in data:
-                        self.access_token = data["accessToken"]
-                        if "refreshToken" in data:
-                            self.refresh_token = data["refreshToken"]
-                        if "expiresIn" in data:
-                            self.token_expiry = time.time() + data["expiresIn"]
-                        _LOGGER.info("Access token refreshed successfully")
-                        return True
-                    else:
-                        _LOGGER.error(f"Token refresh failed: {data.get('description', 'Unknown error')}")
-                        return False
-                else:
-                    _LOGGER.error(f"Token refresh request failed: {resp.status}")
-                    return False
-        except Exception as e:
-            _LOGGER.error(f"Token refresh exception: {e}")
-            return False
+            await client.connect()
 
-    async def _check_and_refresh_token(self) -> bool:
-        """Check if token needs refresh and refresh if necessary.
-        
-        Returns False if token is invalid/expired and can't be refreshed.
-        """
-        if not self.token_expiry:
-            # Set expiry to ~30 days from now if not set
-            self.token_expiry = time.time() + (30 * 24 * 60 * 60)
-        
-        # Refresh if expiry is within 5 minutes
-        if time.time() >= (self.token_expiry - 300):
-            _LOGGER.info("Token expiry approaching, refreshing...")
-            return await self._refresh_token()
-        
-        return True
+            # App auth
+            req = ProtoOAApplicationAuthReq()
+            req.clientId = self.client_id
+            req.clientSecret = self.client_secret
+            await client.send(req)
 
-    async def _request(self, method: str, endpoint: str) -> Dict[str, Any]:
-        """Make an HTTP request to cTrader API."""
-        # Check and refresh token if needed
-        if not await self._check_and_refresh_token():
-            _LOGGER.error("Failed to refresh access token")
-            return None
-        
-        if not self.session:
-            self.session = aiohttp.ClientSession()
-        
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
-        }
-        
-        url = f"{CTRADER_API_URL}{endpoint}"
-        
-        try:
-            async with self.session.request(method, url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                elif resp.status == 401:
-                    _LOGGER.error("Authentication failed - token may be invalid")
-                    # Try refreshing once more
-                    if await self._refresh_token():
-                        return await self._request(method, endpoint)
-                    return None
-                else:
-                    _LOGGER.error(f"API error: {resp.status}")
-                    return None
-        except Exception as e:
-            _LOGGER.error(f"API request failed: {e}")
-            return None
+            # Account auth
+            req = ProtoOAAccountAuthReq()
+            req.ctidTraderAccountId = self.account_id
+            req.accessToken = self.access_token
+            await client.send(req)
+
+            return await coro(client)
+        finally:
+            await client.disconnect()
 
     async def async_get_balance(self) -> Optional[Dict[str, Any]]:
-        """Get account balance and summary."""
-        data = await self._request("GET", f"/accounts/{self.account_id}")
-        if data and "data" in data:
-            account = data["data"]
+        """Fetch account balance."""
+        async def _fetch(client):
+            req = ProtoOATraderReq()
+            req.ctidTraderAccountId = self.account_id
+            msg = await client.send(req)
+            res = Protobuf.extract(msg)
+            trader = res.trader
+            divisor = 10 ** trader.moneyDigits
             return {
-                "balance": account.get("balance", 0),
-                "equity": account.get("equity", 0),
-                "margin_used": account.get("marginUsed", 0),
-                "currency": account.get("currency", "USD"),
+                "balance": round(trader.balance / divisor, 2),
+                "equity": round(getattr(trader, "equity", trader.balance) / divisor, 2),
+                "margin_used": round(getattr(trader, "usedMargin", 0) / divisor, 2),
+                "currency": "USD",
+                "leverage": trader.leverageInCents // 100,
+                "login": trader.traderLogin,
             }
-        return None
+        try:
+            return await self._run(_fetch)
+        except Exception as e:
+            _LOGGER.error(f"get_balance error: {e}")
+            return None
 
-    async def async_get_open_trades(self) -> Optional[list]:
-        """Get list of open positions."""
-        data = await self._request("GET", f"/accounts/{self.account_id}/positions")
-        if data and "data" in data:
-            return data["data"]
-        return []
+    async def async_get_open_trades(self) -> List[Dict]:
+        """Fetch open positions."""
+        async def _fetch(client):
+            # Resolve symbol names
+            from ctrader_open_api.messages.OpenApiMessages_pb2 import ProtoOASymbolsListReq
+            sym_req = ProtoOASymbolsListReq()
+            sym_req.ctidTraderAccountId = self.account_id
+            sym_msg = await client.send(sym_req)
+            sym_res = Protobuf.extract(sym_msg)
+            symbol_map = {int(s.symbolId): s.symbolName for s in sym_res.symbol}
 
-    async def async_get_closed_trades(self, limit: int = 20) -> Optional[list]:
-        """Get list of closed deals/orders."""
-        data = await self._request("GET", f"/accounts/{self.account_id}/deals?limit={limit}")
-        if data and "data" in data:
-            return data["data"]
-        return []
+            req = ProtoOAReconcileReq()
+            req.ctidTraderAccountId = self.account_id
+            msg = await client.send(req)
+            res = Protobuf.extract(msg)
+
+            trades = []
+            for pos in res.position:
+                side = "BUY" if pos.tradeData.tradeSide == 1 else "SELL"
+                sym = symbol_map.get(int(pos.tradeData.symbolId), f"sym{pos.tradeData.symbolId}")
+                trades.append({
+                    "id": pos.positionId,
+                    "symbol": sym,
+                    "side": side,
+                    "volume": int(pos.tradeData.volume) / 100,
+                    "entry_price": round(pos.price, 5),
+                    "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
+                    "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
+                })
+            return trades
+        try:
+            return await self._run(_fetch)
+        except Exception as e:
+            _LOGGER.error(f"get_open_trades error: {e}")
+            return []
+
+    async def async_get_closed_trades(self, limit: int = 20) -> List[Dict]:
+        """Fetch recent closed deals."""
+        async def _fetch(client):
+            req = ProtoOAGetDealListReq()
+            req.ctidTraderAccountId = self.account_id
+            req.fromTimestamp = int((time.time() - 7 * 24 * 3600) * 1000)  # last 7 days
+            req.toTimestamp = int(time.time() * 1000)
+            req.maxRows = limit
+            msg = await client.send(req)
+            res = Protobuf.extract(msg)
+
+            deals = []
+            for deal in res.deal:
+                side = "BUY" if deal.tradeSide == 1 else "SELL"
+                deals.append({
+                    "id": deal.dealId,
+                    "symbol_id": deal.symbolId,
+                    "side": side,
+                    "volume": int(deal.filledVolume) / 100,
+                    "entry_price": round(deal.executionPrice, 5),
+                    "close_timestamp": deal.executionTimestamp,
+                    "profit": round(getattr(deal, "closePositionDetail", None) and deal.closePositionDetail.grossProfit or 0, 2),
+                })
+            return deals
+        try:
+            return await self._run(_fetch)
+        except Exception as e:
+            _LOGGER.error(f"get_closed_trades error: {e}")
+            return []
 
     async def async_update(self) -> Dict[str, Any]:
-        """Fetch all data from cTrader API."""
-        balance = await self.async_get_balance()
-        open_trades = await self.async_get_open_trades()
-        closed_trades = await self.async_get_closed_trades()
-        
-        return {
-            "balance": balance,
-            "open_trades": open_trades or [],
-            "closed_trades": closed_trades or [],
-        }
+        """Fetch all data in one connection."""
+        async def _fetch(client):
+            # Balance
+            req = ProtoOATraderReq()
+            req.ctidTraderAccountId = self.account_id
+            msg = await client.send(req)
+            res = Protobuf.extract(msg)
+            trader = res.trader
+            divisor = 10 ** trader.moneyDigits
+            balance = {
+                "balance": round(trader.balance / divisor, 2),
+                "equity": round(getattr(trader, "equity", trader.balance) / divisor, 2),
+                "margin_used": round(getattr(trader, "usedMargin", 0) / divisor, 2),
+                "currency": "USD",
+                "leverage": trader.leverageInCents // 100,
+            }
 
-    async def close(self):
-        """Close the session."""
-        if self.session:
-            await self.session.close()
+            # Symbol map
+            from ctrader_open_api.messages.OpenApiMessages_pb2 import ProtoOASymbolsListReq
+            sym_req = ProtoOASymbolsListReq()
+            sym_req.ctidTraderAccountId = self.account_id
+            sym_msg = await client.send(sym_req)
+            sym_res = Protobuf.extract(sym_msg)
+            symbol_map = {int(s.symbolId): s.symbolName for s in sym_res.symbol}
+
+            # Open positions
+            rec_req = ProtoOAReconcileReq()
+            rec_req.ctidTraderAccountId = self.account_id
+            rec_msg = await client.send(rec_req)
+            rec_res = Protobuf.extract(rec_msg)
+            open_trades = []
+            for pos in rec_res.position:
+                side = "BUY" if pos.tradeData.tradeSide == 1 else "SELL"
+                sym = symbol_map.get(int(pos.tradeData.symbolId), f"sym{pos.tradeData.symbolId}")
+                open_trades.append({
+                    "id": pos.positionId,
+                    "symbol": sym,
+                    "side": side,
+                    "volume": int(pos.tradeData.volume) / 100,
+                    "entry_price": round(pos.price, 5),
+                    "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
+                    "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
+                })
+
+            # Closed deals (last 7 days)
+            deal_req = ProtoOAGetDealListReq()
+            deal_req.ctidTraderAccountId = self.account_id
+            deal_req.fromTimestamp = int((time.time() - 7 * 24 * 3600) * 1000)
+            deal_req.toTimestamp = int(time.time() * 1000)
+            deal_req.maxRows = 20
+            deal_msg = await client.send(deal_req)
+            deal_res = Protobuf.extract(deal_msg)
+            closed_trades = []
+            for deal in deal_res.deal:
+                side = "BUY" if deal.tradeSide == 1 else "SELL"
+                closed_trades.append({
+                    "id": deal.dealId,
+                    "symbol": symbol_map.get(int(deal.symbolId), f"sym{deal.symbolId}"),
+                    "side": side,
+                    "volume": int(deal.filledVolume) / 100,
+                    "entry_price": round(deal.executionPrice, 5),
+                    "close_timestamp": deal.executionTimestamp,
+                })
+
+            return {
+                "balance": balance,
+                "open_trades": open_trades,
+                "closed_trades": closed_trades,
+            }
+
+        try:
+            return await self._run(_fetch)
+        except Exception as e:
+            _LOGGER.error(f"async_update error: {e}")
+            return {"balance": None, "open_trades": [], "closed_trades": []}
