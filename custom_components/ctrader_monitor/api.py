@@ -29,17 +29,15 @@ LIVE_HOST = "live.ctraderapi.com"
 PORT = 5035
 
 
+ERROR_PAYLOAD_TYPE = 2142  # ProtoOAErrorRes
+
+
 def _extract(proto_msg, res_class):
     """Parse a raw ProtoMessage payload into the expected response class."""
-    # Check for error response first
-    error = ProtoOAErrorRes()
-    try:
+    if proto_msg.payloadType == ERROR_PAYLOAD_TYPE:
+        error = ProtoOAErrorRes()
         error.ParseFromString(proto_msg.payload)
-        if error.errorCode:
-            raise Exception(f"cTrader error: {error.errorCode} — {error.description}")
-    except Exception as e:
-        if "cTrader error" in str(e):
-            raise
+        raise Exception(f"cTrader error: {error.errorCode} — {error.description}")
     result = res_class()
     result.ParseFromString(proto_msg.payload)
     return result
