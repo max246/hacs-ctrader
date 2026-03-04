@@ -189,7 +189,7 @@ class CTraderAPI:
         return client
 
     async def _fetch_live_prices(self, symbols: List[str]) -> Dict[str, float]:
-        """Fetch live forex prices from Yahoo Finance API.
+        """Fetch live forex prices from exchangerate.host API (stable, no rate limits).
         
         Returns dict of symbol -> price (e.g., {'EURUSD': 1.16429})
         """
@@ -197,35 +197,41 @@ class CTraderAPI:
         if not symbols:
             return prices
         
-        # Yahoo Finance uses format: EURUSD=X, GBPUSD=X, etc.
-        yahoo_symbols = [f"{s}=X" for s in symbols]
-        
         try:
             async with aiohttp.ClientSession() as session:
-                url = "https://query1.finance.yahoo.com/v7/finance/quote"
-                params = {"symbols": ",".join(yahoo_symbols)}
-                
-                _LOGGER.info(f"🌐 Fetching from Yahoo: {yahoo_symbols}")
-                
-                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    _LOGGER.debug(f"Yahoo response status: {resp.status}")
+                # For each symbol, fetch live exchange rate
+                # E.g., EURUSD -> base=EUR, target=USD
+                for symbol in symbols:
+                    if len(symbol) < 6:
+                        continue
                     
-                    if resp.status == 200:
-                        data = await resp.json()
-                        
-                        if "quoteResponse" in data and "result" in data["quoteResponse"]:
-                            for quote in data["quoteResponse"]["result"]:
-                                symbol = quote.get("symbol", "").replace("=X", "")
-                                price = quote.get("regularMarketPrice")
-                                
-                                if symbol and price:
-                                    prices[symbol] = float(price)
-                                    _LOGGER.info(f"✅ {symbol} = {price}")
-                        else:
-                            _LOGGER.warning(f"Unexpected Yahoo response: {data}")
-                    else:
-                        _LOGGER.warning(f"Yahoo Finance HTTP {resp.status}")
-                        
+                    base = symbol[:3]  # EUR from EURUSD
+                    target = symbol[3:6]  # USD from EURUSD
+                    
+                    url = "https://api.exchangerate.host/latest"
+                    params = {"base": base, "symbols": target}
+                    
+                    _LOGGER.debug(f"🌐 Fetching {symbol}: {base}/{target}")
+                    
+                    try:
+                        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                if data.get("success") and "rates" in data:
+                                    rate = data["rates"].get(target)
+                                    if rate is not None:
+                                        prices[symbol] = float(rate)
+                                        _LOGGER.info(f"✅ {symbol} = {rate}")
+                                    else:
+                                        _LOGGER.warning(f"No rate for {target} in response")
+                                else:
+                                    _LOGGER.warning(f"exchangerate.host error: {data}")
+                            else:
+                                _LOGGER.warning(f"HTTP {resp.status} for {symbol}")
+                    except asyncio.TimeoutError:
+                        _LOGGER.warning(f"Timeout fetching {symbol}")
+                        continue
+                            
         except Exception as e:
             _LOGGER.error(f"Failed to fetch live prices: {e}", exc_info=True)
         
