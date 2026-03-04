@@ -189,7 +189,7 @@ class CTraderAPI:
         return client
 
     async def _fetch_live_prices(self, symbols: List[str]) -> Dict[str, float]:
-        """Fetch live forex prices from Yahoo Finance API.
+        """Fetch live forex prices using exchangerate.host API (free, no auth needed).
         
         Returns dict of symbol -> price (e.g., {'EURUSD': 1.16429})
         """
@@ -197,40 +197,39 @@ class CTraderAPI:
         if not symbols:
             return prices
         
-        # Yahoo Finance uses format: EURUSD=X, GBPUSD=X, etc.
-        yahoo_symbols = [f"{s}=X" for s in symbols]
-        
         try:
             async with aiohttp.ClientSession() as session:
-                url = "https://query1.finance.yahoo.com/v7/finance/quote"
-                params = {"symbols": ",".join(yahoo_symbols)}
-                
-                _LOGGER.debug(f"Fetching live prices from Yahoo: {yahoo_symbols}")
-                
-                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    _LOGGER.debug(f"Yahoo response status: {resp.status}")
+                # For each symbol, fetch the exchange rate
+                # E.g., EURUSD -> base=EUR, target=USD
+                for symbol in symbols:
+                    if len(symbol) != 6:
+                        continue
                     
-                    if resp.status == 200:
-                        data = await resp.json()
-                        _LOGGER.debug(f"Yahoo response: {data}")
-                        
-                        if "quoteResponse" in data and "result" in data["quoteResponse"]:
-                            for quote in data["quoteResponse"]["result"]:
-                                symbol = quote.get("symbol", "").replace("=X", "")
-                                price = quote.get("regularMarketPrice")
-                                _LOGGER.debug(f"Quote: {symbol} / {quote.get('symbol')} -> price={price}")
-                                
-                                if symbol and price:
-                                    prices[symbol] = float(price)
-                                    _LOGGER.info(f"✅ Live price: {symbol} = {price}")
+                    base = symbol[:3]  # EUR from EURUSD
+                    target = symbol[3:]  # USD from EURUSD
+                    
+                    url = f"https://api.exchangerate.host/latest"
+                    params = {"base": base, "symbols": target}
+                    
+                    _LOGGER.debug(f"🌐 Fetching {symbol}: {base}->{target}")
+                    
+                    async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get("success") and "rates" in data:
+                                rate = data["rates"].get(target)
+                                if rate:
+                                    prices[symbol] = float(rate)
+                                    _LOGGER.info(f"✅ {symbol} = {rate}")
+                                else:
+                                    _LOGGER.warning(f"No rate for {target} in response")
+                            else:
+                                _LOGGER.warning(f"exchangerate.host error: {data}")
                         else:
-                            _LOGGER.warning(f"Unexpected Yahoo response structure: {data}")
-                    else:
-                        _LOGGER.warning(f"Yahoo Finance API error: status {resp.status}")
-                        text = await resp.text()
-                        _LOGGER.debug(f"Response body: {text}")
+                            _LOGGER.warning(f"exchangerate.host HTTP {resp.status}")
+                            
         except Exception as e:
-            _LOGGER.error(f"Failed to fetch live prices from Yahoo Finance: {e}", exc_info=True)
+            _LOGGER.error(f"Failed to fetch live prices: {e}", exc_info=True)
         
         return prices
 
@@ -301,8 +300,9 @@ class CTraderAPI:
             
             # --- Fetch live prices for all open symbols ---
             symbol_names = list(symbol_map.values())
+            _LOGGER.info(f"📊 Fetching live prices for symbols: {symbol_names}")
             live_prices = await self._fetch_live_prices(symbol_names)
-            _LOGGER.debug(f"Fetched live prices: {live_prices}")
+            _LOGGER.info(f"📊 Fetched live prices result: {live_prices}")
             
             # --- Build open trades with profit calculation ---
             open_trades = []
