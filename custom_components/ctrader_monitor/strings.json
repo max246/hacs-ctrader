@@ -7,7 +7,7 @@
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
-          "account_id": "Account ID",
+          "account_id": "Account Number (broker login, e.g. 9882835 — ctidTraderAccountId resolved automatically)",
           "redirect_uri": "Redirect URI (add this to your cTrader app)"
         }
       },

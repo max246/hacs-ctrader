@@ -9,6 +9,8 @@ from .proto.OpenApiCommonMessages_pb2 import ProtoMessage
 from .proto.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
     ProtoOAAccountAuthReq,
+    ProtoOAGetAccountListByAccessTokenReq,
+    ProtoOAGetAccountListByAccessTokenRes,
     ProtoOATraderReq,
     ProtoOATraderRes,
     ProtoOAReconcileReq,
@@ -140,9 +142,10 @@ class CTraderAPI:
         self.client_id = client_id
         self.client_secret = client_secret
         self.host = DEMO_HOST if environment == "demo" else LIVE_HOST
+        self._ctid: Optional[int] = None
 
     async def _connect_and_auth(self) -> CTraderProtoClient:
-        """Connect and authenticate app + account."""
+        """Connect, authenticate app, resolve ctidTraderAccountId, auth account."""
         client = CTraderProtoClient(self.host, PORT)
         await client.connect()
 
@@ -152,9 +155,32 @@ class CTraderAPI:
         app_req.clientSecret = self.client_secret
         await client.send(app_req)
 
+        # Resolve ctidTraderAccountId from access token (don't rely on user input)
+        acc_list_req = ProtoOAGetAccountListByAccessTokenReq()
+        acc_list_req.accessToken = self.access_token
+        acc_list_msg = await client.send(acc_list_req)
+        acc_list_res = _extract(acc_list_msg, ProtoOAGetAccountListByAccessTokenRes)
+
+        if not acc_list_res.ctidTraderAccount:
+            raise Exception("No trading accounts found for this access token")
+
+        # Find matching account by traderLogin (account number) if provided,
+        # otherwise use the first account
+        ctid = None
+        for acc in acc_list_res.ctidTraderAccount:
+            if str(acc.traderLogin) == str(self.account_id) or str(acc.ctidTraderAccountId) == str(self.account_id):
+                ctid = acc.ctidTraderAccountId
+                break
+        if ctid is None:
+            ctid = acc_list_res.ctidTraderAccount[0].ctidTraderAccountId
+            _LOGGER.warning(f"Account {self.account_id} not matched, using first account ctidTraderAccountId={ctid}")
+
+        self._ctid = ctid
+        _LOGGER.debug(f"Resolved ctidTraderAccountId={ctid}")
+
         # Account auth
         acc_req = ProtoOAAccountAuthReq()
-        acc_req.ctidTraderAccountId = self.account_id
+        acc_req.ctidTraderAccountId = ctid
         acc_req.accessToken = self.access_token
         await client.send(acc_req)
 
@@ -166,7 +192,7 @@ class CTraderAPI:
         try:
             client = await self._connect_and_auth()
             req = ProtoOATraderReq()
-            req.ctidTraderAccountId = self.account_id
+            req.ctidTraderAccountId = self._ctid
             msg = await client.send(req)
             res = _extract(msg, ProtoOATraderRes)
             trader = res.trader
@@ -193,7 +219,7 @@ class CTraderAPI:
 
             # --- Balance ---
             trader_req = ProtoOATraderReq()
-            trader_req.ctidTraderAccountId = self.account_id
+            trader_req.ctidTraderAccountId = self._ctid
             trader_msg = await client.send(trader_req)
             trader_res = _extract(trader_msg, ProtoOATraderRes)
             trader = trader_res.trader
@@ -208,14 +234,14 @@ class CTraderAPI:
 
             # --- Symbol map ---
             sym_req = ProtoOASymbolsListReq()
-            sym_req.ctidTraderAccountId = self.account_id
+            sym_req.ctidTraderAccountId = self._ctid
             sym_msg = await client.send(sym_req)
             sym_res = _extract(sym_msg, ProtoOASymbolsListRes)
             symbol_map = {int(s.symbolId): s.symbolName for s in sym_res.symbol}
 
             # --- Open positions ---
             rec_req = ProtoOAReconcileReq()
-            rec_req.ctidTraderAccountId = self.account_id
+            rec_req.ctidTraderAccountId = self._ctid
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             open_trades = []
@@ -234,7 +260,7 @@ class CTraderAPI:
 
             # --- Closed deals (last 7 days) ---
             deal_req = ProtoOADealListReq()
-            deal_req.ctidTraderAccountId = self.account_id
+            deal_req.ctidTraderAccountId = self._ctid
             deal_req.fromTimestamp = int((time.time() - 7 * 24 * 3600) * 1000)
             deal_req.toTimestamp = int(time.time() * 1000)
             deal_req.maxRows = 20
