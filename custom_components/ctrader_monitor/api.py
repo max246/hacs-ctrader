@@ -17,6 +17,7 @@ from .proto.OpenApiMessages_pb2 import (
     ProtoOADealListRes,
     ProtoOASymbolsListReq,
     ProtoOASymbolsListRes,
+    ProtoOAErrorRes,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,6 +29,15 @@ PORT = 5035
 
 def _extract(proto_msg, res_class):
     """Parse a raw ProtoMessage payload into the expected response class."""
+    # Check for error response first
+    error = ProtoOAErrorRes()
+    try:
+        error.ParseFromString(proto_msg.payload)
+        if error.errorCode:
+            raise Exception(f"cTrader error: {error.errorCode} — {error.description}")
+    except Exception as e:
+        if "cTrader error" in str(e):
+            raise
     result = res_class()
     result.ParseFromString(proto_msg.payload)
     return result
@@ -73,11 +83,13 @@ class CTraderProtoClient:
         self._writer.write(struct.pack(">I", len(data)) + data)
         await self._writer.drain()
 
-        fut = asyncio.get_event_loop().create_future()
+        fut = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = fut
 
         try:
-            return await asyncio.wait_for(fut, timeout=timeout)
+            result = await asyncio.wait_for(fut, timeout=timeout)
+            _LOGGER.debug(f"Response payloadType={result.payloadType} for msg_id={msg_id}")
+            return result
         except asyncio.TimeoutError:
             self._pending.pop(msg_id, None)
             raise TimeoutError(f"Timeout waiting for response to msg_id={msg_id}")
