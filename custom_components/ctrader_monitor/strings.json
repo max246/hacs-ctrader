@@ -3,21 +3,17 @@
     "step": {
       "user": {
         "title": "cTrader App Credentials",
-        "description": "Register your app at https://openapi.ctrader.com and get Spotware approval first.\n\nMake sure the **Redirect URI** below is added to your cTrader app settings.",
+        "description": "Register your app at https://openapi.ctrader.com first. Make sure the Redirect URI below is added to your cTrader app settings.",
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
-          "account_id": "Account ID (your cTID account number)",
-          "redirect_uri": "Redirect URI (add this exact URL to your cTrader app)"
+          "account_id": "Account ID",
+          "redirect_uri": "Redirect URI (add this to your cTrader app)"
         }
       },
-      "auth": {
-        "title": "Open cTrader Authorization",
-        "description": "Click **Open cTrader** below to log in with your cTID and allow access.\n\nAfter approving, you'll be redirected to your redirect URI with a `code=` parameter in the URL. Copy that code and click **Submit** to continue."
-      },
       "auth_code": {
-        "title": "Enter Authorization Code",
-        "description": "Paste the `code` value from the redirect URL.\n\nExample: if redirected to `https://yoursite.com/callback?code=ABC123`, paste `ABC123`.",
+        "title": "Authorize & Enter Code",
+        "description": "1. Open this link in your browser to authorize:\n\n{auth_uri}\n\n2. Log in with your cTID and click **Allow access**.\n3. You'll be redirected — copy the `code=` value from the URL and paste it below.",
         "data": {
           "authorization_code": "Authorization Code"
         }
@@ -25,7 +21,7 @@
     },
     "error": {
       "invalid_auth": "Authentication failed. Check your credentials and try again.",
-      "token_exchange_failed": "Could not exchange the code for tokens. Make sure the code hasn't expired (valid ~1 minute) and the redirect URI matches exactly.",
+      "token_exchange_failed": "Could not exchange the code for tokens. Make sure the code hasn't expired (~1 minute) and the redirect URI matches exactly.",
       "unknown": "Unexpected error. Check HA logs."
     },
     "abort": {

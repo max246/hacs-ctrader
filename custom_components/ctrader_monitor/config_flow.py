@@ -94,7 +94,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.client_secret = user_input["client_secret"]
             self.account_id = user_input["account_id"]
             self.redirect_uri = user_input["redirect_uri"]
-            return await self.async_step_auth()
+            return await self.async_step_auth_code()
 
         return self.async_show_form(
             step_id="user",
@@ -107,10 +107,12 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_auth(
+    async def async_step_auth_code(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Step 2: open cTrader authorization URL via external step button."""
+        """Step 2: show auth link + code input field."""
+        errors: Dict[str, str] = {}
+
         auth_uri = (
             f"https://id.ctrader.com/my/settings/openapi/grantingaccess/"
             f"?client_id={self.client_id}"
@@ -118,20 +120,6 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             f"&scope=accounts"
             f"&product=web"
         )
-        return self.async_external_step(step_id="auth", url=auth_uri)
-
-    async def async_step_auth_callback(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
-        """Step 3: called after external step — go to manual code input."""
-        # Regardless of whether HA caught the redirect, ask user for the code
-        return await self.async_step_auth_code()
-
-    async def async_step_auth_code(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
-        """Step 4: user pastes the authorization code from the redirect URL."""
-        errors: Dict[str, str] = {}
 
         if user_input is not None:
             code = user_input["authorization_code"].strip()
@@ -170,6 +158,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("authorization_code"): str,
             }),
             errors=errors,
+            description_placeholders={"auth_uri": auth_uri},
         )
 
 
