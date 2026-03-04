@@ -120,7 +120,7 @@ entities:
 type: markdown
 title: 📈 Open Trades
 content: >
-  {% set trades = state_attr('sensor.ctrader_open_trades', 'last_open_trades') %}
+  {% set trades = state_attr('sensor.ctrader_open_trades', 'open_trades') %}
   {% if trades and trades | length > 0 %}
   {% for t in trades %}
   **{{ t.symbol }}** · {{ t.side }} · {{ t.volume }} lots<br>
