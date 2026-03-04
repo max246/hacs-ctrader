@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to cTrader",
+        "description": "Enter your cTrader API credentials. You can get your access token from the cTrader OpenAPI portal.",
+        "data": {
+          "access_token": "Access Token",
+          "account_id": "Account ID"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid access token or account ID"
+    },
+    "abort": {
+      "already_configured": "Account already configured"
+    }
+  }
+}

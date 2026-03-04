@@ -1,0 +1,7 @@
+{
+  "name": "cTrader Monitor",
+  "homeassistant": "2024.1.0",
+  "documentation": "https://github.com/max246/hacs-ctrader",
+  "issues": "https://github.com/max246/hacs-ctrader/issues",
+  "requirements": ["aiohttp>=3.8.0"]
+}
