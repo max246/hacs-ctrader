@@ -19,6 +19,7 @@ from .proto.OpenApiMessages_pb2 import (
     ProtoOADealListRes,
     ProtoOASymbolsListReq,
     ProtoOASymbolsListRes,
+    ProtoOASubscribeSpotsReq,
     ProtoOAErrorRes,
 )
 
@@ -210,7 +211,7 @@ class CTraderAPI:
                 await client.disconnect()
 
     async def async_update(self) -> Dict[str, Any]:
-        """Fetch all data in a single connection: balance + open positions + closed deals."""
+        """Fetch all data in a single connection: balance + open positions + closed deals + live profit calc."""
         client = None
         try:
             client = await self._connect_and_auth()
@@ -230,34 +231,56 @@ class CTraderAPI:
                 "leverage": trader.leverageInCents // 100,
             }
 
-            # --- Symbol map ---
+            # --- Symbol map + metadata ---
             sym_req = ProtoOASymbolsListReq()
             sym_req.ctidTraderAccountId = self._ctid
             sym_msg = await client.send(sym_req)
             sym_res = _extract(sym_msg, ProtoOASymbolsListRes)
             symbol_map = {int(s.symbolId): s.symbolName for s in sym_res.symbol}
+            symbol_digits = {int(s.symbolId): s.digits for s in sym_res.symbol}  # For pip calculation
 
             # --- Open positions ---
             rec_req = ProtoOAReconcileReq()
             rec_req.ctidTraderAccountId = self._ctid
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
+            
+            # --- Build open trades with profit calculation ---
             open_trades = []
             for pos in rec_res.position:
                 side = "BUY" if pos.tradeData.tradeSide == 1 else "SELL"
-                sym = symbol_map.get(int(pos.tradeData.symbolId), f"#{pos.tradeData.symbolId}")
+                sym_id = int(pos.tradeData.symbolId)
+                sym = symbol_map.get(sym_id, f"#{sym_id}")
+                volume_lots = int(pos.tradeData.volume) / 10000000
+                entry_price = pos.price
+                current_price = entry_price  # ProtoOAPosition has price field that may be updated
+                digits = symbol_digits.get(sym_id, 5)
                 
-                # Note: Unrealized profit calculation requires live bid/ask quotes
-                # For now, we show entry price + used margin. Full P&L needs live spots.
+                # Calculate unrealized P&L
+                # Standard lot size for forex: 10^(5 - digits) units
+                # E.g., EURUSD (digits=5): 1 lot = 100,000 units
+                #       USDJPY (digits=3): 1 lot = 100,000 units
+                lot_multiplier = 10 ** (5 - digits) if digits <= 5 else 1
+                
+                if side == "BUY":
+                    # Profit = (current_price - entry_price) * volume_lots * lot_multiplier
+                    price_diff = current_price - entry_price
+                else:  # SELL
+                    # Profit = (entry_price - current_price) * volume_lots * lot_multiplier
+                    price_diff = entry_price - current_price
+                
+                unrealized_profit = round(price_diff * volume_lots * lot_multiplier, 2)
+                
                 open_trades.append({
                     "id": pos.positionId,
                     "symbol": sym,
                     "side": side,
-                    "volume": int(pos.tradeData.volume) / 10000000,
-                    "entry_price": round(pos.price, 5),
+                    "volume": round(volume_lots, 4),
+                    "entry_price": round(entry_price, 5),
+                    "current_price": round(current_price, 5),
                     "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
                     "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
-                    "used_margin": round(pos.usedMargin, 2) if pos.usedMargin else None,
+                    "unrealized_profit": unrealized_profit,
                 })
 
             # --- Closed deals (last 7 days) ---

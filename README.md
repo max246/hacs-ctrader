@@ -124,8 +124,11 @@ content: >
   {% if trades and trades | length > 0 %}
   {% for t in trades %}
   **{{ t.symbol }}** | {{ t.side }} | {{ "%.4f" % t.volume }} lots
-  {% if t.used_margin is not none %} | Margin: **${{ "%.2f" % t.used_margin }}**{% endif %}<br>
-  📍 Entry: **{{ t.entry_price }}**<br>
+  {% if t.unrealized_profit is not none %}
+    | {{ '🟢' if t.unrealized_profit >= 0 else '🔴' }} **${{ "%.2f" % t.unrealized_profit }}**
+  {% endif %}<br>
+  📍 Entry: `{{ "%.5f" % t.entry_price }}`
+  {% if t.current_price %} | Current: `{{ "%.5f" % t.current_price }}`{% endif %}<br>
   {% if t.stop_loss or t.take_profit %}
   🛑 SL: {% if t.stop_loss %}`{{ t.stop_loss }}`{% else %}-{% endif %} | 🎯 TP: {% if t.take_profit %}`{{ t.take_profit }}`{% else %}-{% endif %}<br>
   {% endif %}
