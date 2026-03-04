@@ -189,7 +189,7 @@ class CTraderAPI:
         return client
 
     async def _fetch_live_prices(self, symbols: List[str]) -> Dict[str, float]:
-        """Fetch live forex prices from exchangerate.host API (stable, no rate limits).
+        """Fetch live forex prices from Frankfurter API (free, no auth, ECB data).
         
         Returns dict of symbol -> price (e.g., {'EURUSD': 1.16429})
         """
@@ -199,8 +199,8 @@ class CTraderAPI:
         
         try:
             async with aiohttp.ClientSession() as session:
-                # For each symbol, fetch live exchange rate
-                # E.g., EURUSD -> base=EUR, target=USD
+                # frankfurter.app is free and requires no API key
+                # Format: https://api.frankfurter.app/latest?from=EUR&to=USD
                 for symbol in symbols:
                     if len(symbol) < 6:
                         continue
@@ -208,8 +208,8 @@ class CTraderAPI:
                     base = symbol[:3]  # EUR from EURUSD
                     target = symbol[3:6]  # USD from EURUSD
                     
-                    url = "https://api.exchangerate.host/latest"
-                    params = {"base": base, "symbols": target}
+                    url = "https://api.frankfurter.app/latest"
+                    params = {"from": base, "to": target}
                     
                     _LOGGER.debug(f"🌐 Fetching {symbol}: {base}/{target}")
                     
@@ -217,19 +217,19 @@ class CTraderAPI:
                         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
-                                if data.get("success") and "rates" in data:
+                                if "rates" in data:
                                     rate = data["rates"].get(target)
                                     if rate is not None:
                                         prices[symbol] = float(rate)
                                         _LOGGER.info(f"✅ {symbol} = {rate}")
                                     else:
-                                        _LOGGER.warning(f"No rate for {target} in response")
+                                        _LOGGER.warning(f"No {target} in rates")
                                 else:
-                                    _LOGGER.warning(f"exchangerate.host error: {data}")
+                                    _LOGGER.warning(f"Invalid response: {data}")
                             else:
-                                _LOGGER.warning(f"HTTP {resp.status} for {symbol}")
+                                _LOGGER.warning(f"HTTP {resp.status}")
                     except asyncio.TimeoutError:
-                        _LOGGER.warning(f"Timeout fetching {symbol}")
+                        _LOGGER.warning(f"Timeout for {symbol}")
                         continue
                             
         except Exception as e:
