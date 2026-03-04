@@ -142,6 +142,7 @@ content: >
   {% if trades and trades | length > 0 %}
   {% for t in trades %}
   **{{ t.symbol }}** · {{ t.side }} · {{ t.volume }} lots<br>
+  {% if t.profit is not none %}{{ '🟢' if t.profit >= 0 else '🔴' }} **{{ t.profit }}**<br>{% endif %}
   🕐 {{ (t.close_timestamp / 1000) | timestamp_local | truncate(16, true, '') }}
   <br><br>
   {% endfor %}

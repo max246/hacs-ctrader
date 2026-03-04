@@ -267,6 +267,13 @@ class CTraderAPI:
             closed_trades = []
             for deal in deal_res.deal:
                 side = "BUY" if deal.tradeSide == 1 else "SELL"
+                digits = deal.moneyDigits if deal.moneyDigits else 2
+                divisor = 10 ** digits
+                profit = None
+                if deal.HasField("closePositionDetail"):
+                    gross = deal.closePositionDetail.grossProfit
+                    commission = deal.closePositionDetail.commission
+                    profit = round((gross + commission) / divisor, 2)
                 closed_trades.append({
                     "id": deal.dealId,
                     "symbol": symbol_map.get(int(deal.symbolId), f"#{deal.symbolId}"),
@@ -274,6 +281,7 @@ class CTraderAPI:
                     "volume": int(deal.filledVolume) / 100,
                     "entry_price": round(deal.executionPrice, 5),
                     "close_timestamp": deal.executionTimestamp,
+                    "profit": profit,
                 })
 
             return {
