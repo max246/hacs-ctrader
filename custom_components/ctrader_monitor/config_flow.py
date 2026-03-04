@@ -30,6 +30,14 @@ async def exchange_authorization_code(
         "client_id": client_id,
         "client_secret": client_secret,
     }
+    _LOGGER.warning(
+        f"cTrader token exchange request — URL: https://openapi.ctrader.com/apps/token | "
+        f"Params: grant_type={params['grant_type']} | "
+        f"code={params['code']} | "
+        f"redirect_uri={params['redirect_uri']} | "
+        f"client_id={params['client_id']} | "
+        f"client_secret={params['client_secret'][:6]}... (truncated)"
+    )
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -38,6 +46,7 @@ async def exchange_authorization_code(
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
+                _LOGGER.warning(f"cTrader token exchange response — status={resp.status} | body={data}")
                 if resp.status == 200 and "accessToken" in data:
                     return data
                 _LOGGER.error(f"Token exchange failed: {resp.status} — {data}")
