@@ -1,6 +1,7 @@
 """cTrader API Client."""
 import logging
 import aiohttp
+import time
 from typing import Any, Dict, Optional
 
 _LOGGER = logging.getLogger(__name__)
@@ -9,7 +10,12 @@ CTRADER_API_URL = "https://openapi.ctrader.com/v2"
 
 
 class CTraderAPI:
-    """cTrader API client for fetching account data."""
+    """cTrader API client for fetching account data.
+    
+    Note: Access tokens expire after ~30 days. You'll need to refresh using
+    the refresh_token obtained during OAuth authentication via:
+    https://openapi.ctrader.com/apps/token?grant_type=refresh_token&refresh_token={refresh_token}&client_id={client_id}&client_secret={client_secret}
+    """
 
     def __init__(self, access_token: str, account_id: str):
         """Initialize API client."""

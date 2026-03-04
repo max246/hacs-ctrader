@@ -43,50 +43,83 @@ A Home Assistant custom integration for monitoring your cTrader trading account.
 
 ## Getting Your Credentials
 
-Follow the [official cTrader Open API app creation guide](https://help.ctrader.com/open-api/creating-new-app/):
+Follow these steps to set up authentication:
 
-### Step 1: Define Your Application
+### Step 1: Create Application (Portal)
 
 1. Go to [cTrader OpenAPI Portal](https://openapi.ctrader.com)
-2. Create a new application with:
-   - **Name:** "Home Assistant cTrader Monitor" (or your choice)
-   - **Purpose:** Home automation monitoring of trading account
-   - **Permissions:** Read-only access to account data
-   - **Redirect URL:** `http://localhost:8123/auth/callback` (for local HA setup)
+2. Create new application:
+   - **Name:** "Home Assistant cTrader Monitor"
+   - **Permissions:** Read-only (`accounts` scope)
+   - **Redirect URI:** `http://localhost:8123/auth/callback`
+3. Submit for Spotware approval (24-48 hours)
 
-### Step 2: Submit for Approval
+### Step 2: Get App Credentials
 
-1. Fill in detailed description of how you'll use the integration
-2. Specify read-only permissions for:
-   - Account balance & equity
-   - Open positions
-   - Closed trades history
-3. Submit for Spotware approval
-4. Wait for approval (typically 24-48 hours)
-
-### Step 3: Get Your Credentials
-
-Once approved, you'll receive:
-
+Once approved, grab your:
 - **Client ID**
 - **Client Secret**
-- **Access Token** (or ability to generate one)
 
-### Step 4: Find Your Account ID
+### Step 3: Authenticate Your Account
+
+Follow the [official OAuth 2.0 authentication flow](https://help.ctrader.com/open-api/account-authentication/#authentication-flow):
+
+1. Open this authorization URI in your browser:
+```
+https://id.ctrader.com/my/settings/openapi/grantingaccess/?client_id={CLIENT_ID}&redirect_uri=http://localhost:8123/auth/callback&scope=accounts&product=web
+```
+
+2. Replace `{CLIENT_ID}` with your actual Client ID
+3. Log in with your cTID
+4. Select account(s) you want to authorize → **Allow access**
+5. You'll be redirected with an `code` parameter in the URL
+
+### Step 4: Exchange Code for Access Token
+
+Make this REST API call:
+
+```bash
+curl -X GET 'https://openapi.ctrader.com/apps/token?grant_type=authorization_code&code={AUTHORIZATION_CODE}&redirect_uri=http://localhost:8123/auth/callback&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}'
+```
+
+Replace:
+- `{AUTHORIZATION_CODE}` - from redirect URL
+- `{CLIENT_ID}` - your client ID
+- `{CLIENT_SECRET}` - your client secret
+
+**Response will contain:**
+```json
+{
+  "accessToken": "YOUR_ACCESS_TOKEN_HERE",
+  "refreshToken": "YOUR_REFRESH_TOKEN",
+  "expiresIn": 2628000
+}
+```
+
+### Step 5: Get Your Account ID
 
 1. Log into your cTrader platform
-2. Go to **Account Settings**
-3. Note your account number (e.g., `9882835`)
+2. View account number in **Account Settings**
 
-### Step 5: Configure in Home Assistant
+### Step 6: Add to Home Assistant
 
-1. In Home Assistant: **Settings → Devices & Services**
+1. **Settings → Devices & Services**
 2. Search for **cTrader Monitor**
 3. Enter:
-   - **Access Token** (from cTrader portal)
-   - **Account ID** (your account number)
+   - **Access Token** (from step 4)
+   - **Account ID** (from step 5)
 
-**Security Note:** Keep your access token private. Treat it like a password — it grants read access to your account data.
+### Token Refresh (After ~30 Days)
+
+When your access token expires, refresh it using:
+
+```bash
+curl -X POST 'https://openapi.ctrader.com/apps/token?grant_type=refresh_token&refresh_token={REFRESH_TOKEN}&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}'
+```
+
+You'll get a new `accessToken` — update it in Home Assistant settings.
+
+**Security Note:** Keep all tokens private. They grant read access to your account data.
 
 ## Sensors
 
