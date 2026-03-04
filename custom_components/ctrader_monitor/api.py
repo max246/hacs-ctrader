@@ -312,9 +312,9 @@ class CTraderAPI:
                     sym_id = int(pos.tradeData.symbolId)
                     sym = symbol_map.get(sym_id, f"#{sym_id}")
                     
-                    # Convert volume: cTrader uses microlots (10,000 = 1 lot)
+                    # Convert volume: cTrader uses microlots (10,000,000 = 1 lot)
                     volume_microlots = int(pos.tradeData.volume)
-                    volume_lots = volume_microlots / 1000000  # 1,000,000 microlots = 1 lot
+                    volume_lots = volume_microlots / 10000000  # 10,000,000 microlots = 1 lot
                     
                     # Entry price
                     entry_price = float(pos.price)
