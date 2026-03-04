@@ -270,20 +270,15 @@ class CTraderAPI:
                     # Entry price
                     entry_price = float(pos.price)
                     
-                    # Current price: try to get from position, fallback to entry
-                    # ProtoOAPosition may have bid/ask in some implementations
+                    # Current price: 
+                    # NOTE: ProtoOAPosition.price is ENTRY price only
+                    # We need live bid/ask from spot subscription (TODO: async listener)
+                    # For now, use entry price (profit will show 0)
                     current_price = entry_price
                     
-                    # TEMP: For testing, use hardcoded live price if this is EURUSD
-                    # TODO: Replace with real live price subscription
-                    if sym == "EURUSD":
-                        current_price = 1.16429  # YOUR LIVE PRICE
-                    
-                    _LOGGER.info(f"DEBUG: {sym} entry={entry_price}, current={current_price}")
-                    
-                    # Simple profit formula: (current - entry) × volume_lots × 100,000
-                    # Where 100,000 is the standard lot size for forex
-                    lot_size = 100000
+                    # Simple profit formula: (current - entry) × volume_lots × 1,000,000
+                    # cTrader uses 1,000,000 as the standard multiplier
+                    lot_size = 1000000
                     
                     if side == "BUY":
                         price_diff = current_price - entry_price

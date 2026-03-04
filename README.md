@@ -139,9 +139,12 @@ content: >
   {% endif %}
 ```
 
-**Formula:** `profit = (current_price - entry_price) × volume_lots × 100,000`
+**Formula:** `profit = (current_price - entry_price) × volume_lots × 1,000,000`
 - For BUY: profit if current > entry
 - For SELL: profit if entry > current
+
+**Example:** EURUSD BUY 0.01 lots, entry 1.16433, current 1.16429
+- Profit = (1.16429 - 1.16433) × 0.01 × 1,000,000 = **-$0.40**
 
 ### Recent Closed Trades Card
 
