@@ -102,20 +102,55 @@ The integration creates the following sensors:
 
 ## Usage Examples
 
-### Display in Home Assistant Dashboard
+### Account Summary Card
 
 ```yaml
 type: entities
+title: 💰 Account Summary
 entities:
-  - entity_id: sensor.ctrader_balance
-  - entity_id: sensor.ctrader_equity
-  - entity_id: sensor.ctrader_margin_used
-  - entity_id: sensor.ctrader_open_trades
+  - sensor.ctrader_balance
+  - sensor.ctrader_equity
+  - sensor.ctrader_margin_used
+  - sensor.ctrader_open_trades
 ```
 
-### Create Automations
+### Open Trades Card
 
-Example: Send notification if balance drops below certain level
+```yaml
+type: markdown
+title: 📈 Open Trades
+content: >
+  {% set trades = state_attr('sensor.ctrader_open_trades', 'last_open_trades') %}
+  {% if trades and trades | length > 0 %}
+  {% for t in trades %}
+  **{{ t.symbol }}** · {{ t.side }} · {{ t.volume }} lots<br>
+  📍 Entry: `{{ t.entry_price }}`{% if t.stop_loss %} · SL: `{{ t.stop_loss }}`{% endif %}{% if t.take_profit %} · TP: `{{ t.take_profit }}`{% endif %}
+  <br><br>
+  {% endfor %}
+  {% else %}
+  No open positions 🟢
+  {% endif %}
+```
+
+### Recent Closed Trades Card
+
+```yaml
+type: markdown
+title: 📉 Recent Closed Trades
+content: >
+  {% set trades = state_attr('sensor.ctrader_recent_closed_trades', 'last_closed_trades') %}
+  {% if trades and trades | length > 0 %}
+  {% for t in trades %}
+  **{{ t.symbol }}** · {{ t.side }} · {{ t.volume }} lots<br>
+  🕐 {{ (t.close_timestamp / 1000) | timestamp_local | truncate(16, true, '') }}
+  <br><br>
+  {% endfor %}
+  {% else %}
+  No recent closed trades 🟢
+  {% endif %}
+```
+
+### Alert on Low Balance
 
 ```yaml
 automation:
