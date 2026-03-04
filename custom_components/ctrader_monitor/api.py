@@ -298,10 +298,17 @@ class CTraderAPI:
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             
-            # --- Fetch live prices for all open symbols ---
-            symbol_names = list(symbol_map.values())
-            _LOGGER.info(f"📊 Fetching live prices for symbols: {symbol_names}")
-            live_prices = await self._fetch_live_prices(symbol_names)
+            # --- Fetch live prices ONLY for symbols with open positions ---
+            active_symbols = set()
+            for pos in rec_res.position:
+                sym_id = int(pos.tradeData.symbolId)
+                sym = symbol_map.get(sym_id)
+                if sym:
+                    active_symbols.add(sym)
+            
+            active_symbols_list = list(active_symbols)
+            _LOGGER.info(f"📊 Fetching live prices for {len(active_symbols_list)} open symbols: {active_symbols_list}")
+            live_prices = await self._fetch_live_prices(active_symbols_list)
             _LOGGER.info(f"📊 Fetched live prices result: {live_prices}")
             
             # --- Build open trades with profit calculation ---
