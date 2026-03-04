@@ -3,18 +3,18 @@
     "step": {
       "user": {
         "title": "Connect to cTrader",
-        "description": "Enter your cTrader API credentials. You can get your access token from the cTrader OpenAPI portal.",
+        "description": "Before setting up this integration:\n\n1. Register an application at https://openapi.ctrader.com\n2. Select Read-Only permissions\n3. Generate an Access Token in the portal\n4. Find your Account ID in cTrader platform settings\n\nThen enter your credentials below.",
         "data": {
-          "access_token": "Access Token",
-          "account_id": "Account ID"
+          "access_token": "Access Token (from cTrader OpenAPI portal)",
+          "account_id": "Account ID (your account number)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid access token or account ID"
+      "invalid_auth": "Invalid access token or account ID. Check that:\n- Token is valid and not expired\n- Token has Read permissions enabled\n- Account ID is correct"
     },
     "abort": {
-      "already_configured": "Account already configured"
+      "already_configured": "This cTrader account is already configured"
     }
   }
 }

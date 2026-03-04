@@ -43,14 +43,42 @@ A Home Assistant custom integration for monitoring your cTrader trading account.
 
 ## Getting Your Credentials
 
-### Access Token
-1. Log in to your cTrader account
-2. Go to **Settings → OpenAPI**
-3. Create a new token with read-only permissions
-4. Copy the token value
+### Step 1: Register an Application on cTrader
 
-### Account ID
-Your account ID is displayed in your cTrader platform (e.g., `9882835`)
+1. Log in to your [cTrader OpenAPI Portal](https://openapi.ctrader.com)
+2. Click **Create Application**
+3. Fill in application details:
+   - **Name:** "Home Assistant Monitor" (or any name)
+   - **Type:** API
+   - **Permissions:** Select **Read-Only** permissions
+4. Click **Create**
+5. You'll receive:
+   - **Client ID**
+   - **Client Secret**
+
+### Step 2: Generate Access Token
+
+You have two options:
+
+#### Option A: Web Portal (Easiest)
+1. In OpenAPI portal, go to your application
+2. Click **Generate Token**
+3. Select **Read-Only** access
+4. Copy the generated **Access Token**
+5. Save it securely
+
+#### Option B: OAuth Flow
+1. Use the Client ID + Client Secret to request a token via OAuth
+2. Authorization endpoint: `https://openapi.ctrader.com/oauth/authorize`
+3. Token endpoint: `https://openapi.ctrader.com/oauth/token`
+
+### Step 3: Get Your Account ID
+
+1. Log into cTrader platform
+2. Go to **Account Settings**
+3. Your account number is displayed (e.g., `9882835`)
+
+**Note:** Keep your access token private. It grants read access to your account data.
 
 ## Sensors
 
