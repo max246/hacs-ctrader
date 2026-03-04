@@ -4,7 +4,7 @@
   "codeowners": ["@max246"],
   "config_flow": true,
   "documentation": "https://github.com/max246/hacs-ctrader",
-  "requirements": ["aiohttp>=3.8.0", "protobuf>=3.20.0", "ctrader-open-api>=0.9.2"],
-  "version": "1.8.3",
+  "requirements": ["aiohttp>=3.8.0", "protobuf>=3.20.0", "ctrader_open_api>=0.9.2"],
+  "version": "1.8.4",
   "homeassistant": "2024.1.0"
 }
