@@ -249,7 +249,9 @@ class CTraderAPI:
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             
-            # --- Build open trades with profit calculation ---
+            # --- Build open trades ---
+            # Note: For real-time profit, we need live bid/ask quotes from ProtoOASpotEvent
+            # For now, we show available data and can extend with live spots later
             open_trades = []
             for pos in rec_res.position:
                 try:
@@ -258,29 +260,11 @@ class CTraderAPI:
                     sym = symbol_map.get(sym_id, f"#{sym_id}")
                     volume_lots = int(pos.tradeData.volume) / 10000000
                     entry_price = float(pos.price) if pos.price else 0
-                    current_price = entry_price  # ProtoOAPosition has price field
                     
-                    # Get symbol digits with safe default
-                    digits = symbol_digits.get(sym_id, 5)
-                    if not isinstance(digits, int):
-                        digits = 5
-                    
-                    # Calculate lot multiplier safely
-                    try:
-                        if 0 <= digits <= 5:
-                            lot_multiplier = 10 ** (5 - digits)
-                        else:
-                            lot_multiplier = 100000  # Default to 100k units per lot
-                    except Exception:
-                        lot_multiplier = 100000
-                    
-                    # Calculate unrealized P&L
-                    if side == "BUY":
-                        price_diff = current_price - entry_price
-                    else:  # SELL
-                        price_diff = entry_price - current_price
-                    
-                    unrealized_profit = round(price_diff * volume_lots * lot_multiplier, 2)
+                    # NOTE: ProtoOAPosition.price is the ENTRY price, not current market price
+                    # To get real profit, we'd need to subscribe to live SPOT quotes (bid/ask)
+                    # For now, unrealized_profit is None until we add live price streaming
+                    unrealized_profit = None
                     
                     open_trades.append({
                         "id": pos.positionId,
@@ -288,7 +272,6 @@ class CTraderAPI:
                         "side": side,
                         "volume": round(volume_lots, 4),
                         "entry_price": round(entry_price, 5),
-                        "current_price": round(current_price, 5),
                         "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
                         "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
                         "unrealized_profit": unrealized_profit,

@@ -114,7 +114,7 @@ entities:
   - sensor.ctrader_open_trades
 ```
 
-### Open Trades Card (Enhanced)
+### Open Trades Card
 
 ```yaml
 type: markdown
@@ -123,12 +123,8 @@ content: >
   {% set trades = state_attr('sensor.ctrader_open_trades', 'open_trades') %}
   {% if trades and trades | length > 0 %}
   {% for t in trades %}
-  **{{ t.symbol }}** | {{ t.side }} | {{ "%.4f" % t.volume }} lots
-  {% if t.unrealized_profit is not none %}
-    | {{ '🟢' if t.unrealized_profit >= 0 else '🔴' }} **${{ "%.2f" % t.unrealized_profit }}**
-  {% endif %}<br>
-  📍 Entry: `{{ "%.5f" % t.entry_price }}`
-  {% if t.current_price %} | Current: `{{ "%.5f" % t.current_price }}`{% endif %}<br>
+  **{{ t.symbol }}** | {{ t.side }} | {{ "%.4f" % t.volume }} lots<br>
+  📍 Entry: `{{ "%.5f" % t.entry_price }}`<br>
   {% if t.stop_loss or t.take_profit %}
   🛑 SL: {% if t.stop_loss %}`{{ t.stop_loss }}`{% else %}-{% endif %} | 🎯 TP: {% if t.take_profit %}`{{ t.take_profit }}`{% else %}-{% endif %}<br>
   {% endif %}
@@ -138,6 +134,8 @@ content: >
   ✅ No open positions
   {% endif %}
 ```
+
+**Note on Profit Calculation:** Real-time profit requires live bid/ask prices from cTrader's spot subscription. This is on the roadmap for a future version. For now, the card shows trade details (entry, SL, TP).
 
 ### Recent Closed Trades Card
 
