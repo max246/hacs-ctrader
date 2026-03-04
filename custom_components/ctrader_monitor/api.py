@@ -338,9 +338,9 @@ class CTraderAPI:
                     elif sym not in live_prices:
                         _LOGGER.warning(f"{sym}: No live price available, using entry price {entry_price}")
                     
-                    # Simple profit formula: (current - entry) × volume_lots × 1,000,000
-                    # cTrader uses 1,000,000 as the standard multiplier
-                    lot_size = 1000000
+                    # Simple profit formula: (current - entry) × volume_lots × 100,000
+                    # Standard forex lot size = 100,000 units
+                    lot_size = 100000
                     
                     if side == "BUY":
                         price_diff = current_price - entry_price
