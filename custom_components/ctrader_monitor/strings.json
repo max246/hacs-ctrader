@@ -3,12 +3,11 @@
     "step": {
       "user": {
         "title": "cTrader App Credentials",
-        "description": "Register your app at https://openapi.ctrader.com and get Spotware approval first. Make sure your app's redirect URI matches the one below.",
+        "description": "Before continuing, make sure your cTrader app (https://openapi.ctrader.com) has this exact redirect URI registered:\n\n`{redirect_uri}`\n\nOnce that's set, enter your app credentials below.",
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
-          "account_id": "Account ID (your cTID account number)",
-          "redirect_uri": "Redirect URI (must match the one in your cTrader app)"
+          "account_id": "Account ID (your cTID account number)"
         }
       },
       "auth": {
@@ -23,7 +22,7 @@
     "abort": {
       "already_configured": "This cTrader account is already configured.",
       "missing_code": "No authorization code received. Try again.",
-      "token_exchange_failed": "Failed to exchange authorization code for tokens. Try again.",
+      "token_exchange_failed": "Failed to exchange authorization code for tokens. Make sure the redirect URI in your cTrader app matches exactly.",
       "invalid_auth": "Tokens are invalid. Check your credentials and try again."
     }
   }

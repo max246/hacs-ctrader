@@ -17,6 +17,15 @@ DOMAIN = "ctrader_monitor"
 OAUTH_CALLBACK_PATH = "/auth/external/callback"
 
 
+def build_redirect_uri(hass) -> str:
+    """Build the redirect URI from HA's own URL."""
+    try:
+        ha_url = get_url(hass, allow_internal=True, allow_ip=True)
+        return f"{ha_url.rstrip('/')}{OAUTH_CALLBACK_PATH}"
+    except Exception:
+        return f"http://localhost:8123{OAUTH_CALLBACK_PATH}"
+
+
 async def exchange_authorization_code(
     client_id: str,
     client_secret: str,
@@ -76,21 +85,15 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Step 1: collect app credentials."""
+        """Step 1: show redirect URI, collect app credentials."""
         errors: Dict[str, str] = {}
 
-        # Build default redirect URI from HA's own URL
-        try:
-            ha_url = get_url(self.hass, allow_internal=True, allow_ip=True)
-            default_redirect = f"{ha_url.rstrip('/')}{OAUTH_CALLBACK_PATH}"
-        except Exception:
-            default_redirect = f"http://localhost:8123{OAUTH_CALLBACK_PATH}"
+        self.redirect_uri = build_redirect_uri(self.hass)
 
         if user_input is not None:
             self.client_id = user_input["client_id"]
             self.client_secret = user_input["client_secret"]
             self.account_id = user_input["account_id"]
-            self.redirect_uri = user_input["redirect_uri"]
             return await self.async_step_auth()
 
         schema = vol.Schema(
@@ -98,7 +101,6 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("client_id"): str,
                 vol.Required("client_secret"): str,
                 vol.Required("account_id"): str,
-                vol.Required("redirect_uri", default=default_redirect): str,
             }
         )
 
@@ -106,6 +108,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=schema,
             errors=errors,
+            description_placeholders={"redirect_uri": self.redirect_uri},
         )
 
     async def async_step_auth(
@@ -124,10 +127,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_auth_callback(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Step 3: HA catches the OAuth redirect, extract code and exchange for tokens."""
-        errors: Dict[str, str] = {}
-
-        # HA passes the query params from the redirect as user_input
+        """Step 3: HA catches the OAuth redirect, exchange code for tokens."""
         code = (user_input or {}).get("code")
 
         if not code:
