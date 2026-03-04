@@ -1,6 +1,7 @@
 """Config flow for cTrader Monitor."""
 import logging
 from typing import Any, Dict, Optional
+from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 import voluptuous as vol
@@ -14,6 +15,7 @@ from .api import CTraderAPI
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "ctrader_monitor"
+REDIRECT_URI = "http://localhost:8123/auth/external/callback"
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -23,30 +25,23 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
-STEP_AUTH_CODE_SCHEMA = vol.Schema(
-    {
-        vol.Required("authorization_code"): str,
-    }
-)
-
 
 async def exchange_authorization_code(
     client_id: str,
     client_secret: str,
     authorization_code: str,
-    redirect_uri: str = "http://localhost:8123/auth/callback",
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """Exchange authorization code for access and refresh tokens."""
     token_url = "https://openapi.ctrader.com/apps/token"
-    
+
     params = {
         "grant_type": "authorization_code",
         "code": authorization_code,
-        "redirect_uri": redirect_uri,
+        "redirect_uri": REDIRECT_URI,
         "client_id": client_id,
         "client_secret": client_secret,
     }
-    
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -57,14 +52,14 @@ async def exchange_authorization_code(
                 if resp.status == 200:
                     return await resp.json()
                 else:
-                    _LOGGER.error(f"Token exchange failed: {resp.status}")
+                    _LOGGER.error(f"Token exchange failed: {resp.status} - {await resp.text()}")
                     return None
     except Exception as e:
         _LOGGER.error(f"Token exchange error: {e}")
         return None
 
 
-async def validate_tokens(hass: HomeAssistant, data: dict) -> dict:
+async def validate_tokens(hass: HomeAssistant, data: dict) -> None:
     """Validate tokens by fetching account data."""
     api = CTraderAPI(
         access_token=data["access_token"],
@@ -73,108 +68,102 @@ async def validate_tokens(hass: HomeAssistant, data: dict) -> dict:
         client_id=data["client_id"],
         client_secret=data["client_secret"],
     )
-    
-    try:
-        result = await api.async_get_balance()
-        if result is None:
-            raise InvalidAuth
-    except Exception as e:
-        _LOGGER.error(f"Connection failed: {e}")
+
+    result = await api.async_get_balance()
+    if result is None:
         raise InvalidAuth
-    
-    return {"title": f"cTrader Account {data['account_id']}"}
 
 
 class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for cTrader Monitor."""
 
     VERSION = 1
-    
+
     def __init__(self):
         """Initialize config flow."""
         super().__init__()
-        self.client_id = None
-        self.client_secret = None
-        self.account_id = None
-        self.auth_uri = None
+        self.client_id: Optional[str] = None
+        self.client_secret: Optional[str] = None
+        self.account_id: Optional[str] = None
 
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Handle the initial step - get app credentials."""
+        """Step 1: collect app credentials."""
         errors: Dict[str, str] = {}
-        
+
         if user_input is not None:
             self.client_id = user_input["client_id"]
             self.client_secret = user_input["client_secret"]
             self.account_id = user_input["account_id"]
-            
-            # Generate authorization URI
-            self.auth_uri = (
-                f"https://id.ctrader.com/my/settings/openapi/grantingaccess/"
-                f"?client_id={self.client_id}"
-                f"&redirect_uri=http://localhost:8123/auth/callback"
-                f"&scope=accounts"
-                f"&product=web"
-            )
-            
-            return await self.async_step_auth_code()
-        
+            return await self.async_step_auth()
+
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "docs_url": "https://github.com/max246/hacs-ctrader/wiki"
-            },
         )
-    
-    async def async_step_auth_code(
+
+    async def async_step_auth(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Handle authorization code exchange."""
-        errors: Dict[str, str] = {}
-        
-        if user_input is not None:
-            auth_code = user_input["authorization_code"]
-            
-            # Exchange code for tokens
-            token_response = await exchange_authorization_code(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                authorization_code=auth_code,
-            )
-            
-            if not token_response or "accessToken" not in token_response:
-                errors["base"] = "invalid_auth"
-            else:
-                # Prepare data with tokens from response
-                config_data = {
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "account_id": self.account_id,
-                    "access_token": token_response["accessToken"],
-                    "refresh_token": token_response.get("refreshToken", ""),
-                }
-                
-                # Validate tokens work
-                try:
-                    await validate_tokens(self.hass, config_data)
-                except InvalidAuth:
-                    errors["base"] = "invalid_auth"
-                else:
-                    return self.async_create_entry(
-                        title=f"cTrader Account {self.account_id}",
-                        data=config_data,
-                    )
-        
-        return self.async_show_form(
-            step_id="auth_code",
-            data_schema=STEP_AUTH_CODE_SCHEMA,
-            errors=errors,
-            description_placeholders={
-                "auth_uri": self.auth_uri,
-            },
+        """Step 2: redirect user to cTrader authorization page."""
+        auth_uri = (
+            f"https://id.ctrader.com/my/settings/openapi/grantingaccess/"
+            f"?client_id={self.client_id}"
+            f"&redirect_uri={REDIRECT_URI}"
+            f"&scope=accounts"
+            f"&product=web"
+        )
+
+        return self.async_external_step(step_id="auth", url=auth_uri)
+
+    async def async_step_auth_callback(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Step 3: handle OAuth callback, exchange code for tokens."""
+        # Mark external step done
+        self.async_external_step_done(next_step_id="token_exchange")
+        return await self.async_step_token_exchange()
+
+    async def async_step_token_exchange(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Step 4: exchange auth code for tokens and save."""
+        # HA puts the callback URL in user_input after external step
+        code = None
+
+        if user_input and "code" in user_input:
+            code = user_input["code"]
+
+        if not code:
+            return self.async_abort(reason="missing_code")
+
+        token_response = await exchange_authorization_code(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            authorization_code=code,
+        )
+
+        if not token_response or "accessToken" not in token_response:
+            return self.async_abort(reason="token_exchange_failed")
+
+        config_data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "account_id": self.account_id,
+            "access_token": token_response["accessToken"],
+            "refresh_token": token_response.get("refreshToken", ""),
+        }
+
+        try:
+            await validate_tokens(self.hass, config_data)
+        except InvalidAuth:
+            return self.async_abort(reason="invalid_auth")
+
+        return self.async_create_entry(
+            title=f"cTrader Account {self.account_id}",
+            data=config_data,
         )
 
 
