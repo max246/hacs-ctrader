@@ -2,19 +2,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to cTrader",
-        "description": "Complete the OAuth 2.0 authentication flow first:\n\n1. Register app at https://openapi.ctrader.com\n2. Get Spotware approval\n3. Follow auth flow: https://help.ctrader.com/open-api/account-authentication/#authentication-flow\n4. Exchange authorization code for tokens\n5. Find your Account ID in cTrader platform\n\nPaste the values you received from the OAuth flow:\n- Access Token (from token response)\n- Refresh Token (from token response)\n- Client ID (from app credentials)\n- Client Secret (from app credentials)\n- Account ID (your cTID account number)\n\nThe integration will automatically refresh your access token when needed.",
+        "title": "cTrader App Credentials",
+        "description": "Before starting, register your app at https://openapi.ctrader.com and get Spotware approval.\n\nEnter your app credentials (from the credentials section):",
         "data": {
-          "access_token": "Access Token (from OAuth token response)",
-          "refresh_token": "Refresh Token (from OAuth token response)",
-          "account_id": "Account ID (your cTID trader account)",
-          "client_id": "Client ID (from app credentials)",
-          "client_secret": "Client Secret (from app credentials)"
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "account_id": "Account ID (your cTID account number)"
+        }
+      },
+      "auth_code": {
+        "title": "Authorize Account",
+        "description": "Click the link below to authorize this integration:\n\n{auth_uri}\n\nAfter authorization, you'll be redirected. Copy the 'code' parameter from the URL and paste it below:",
+        "data": {
+          "authorization_code": "Authorization Code (from redirect URL)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid credentials. Check:\n- All tokens and credentials are correct\n- Access token is valid (from OAuth flow)\n- Refresh token is valid\n- Account ID matches authorized account"
+      "invalid_auth": "Authorization failed. Check:\n- Authorization code is correct\n- Code hasn't expired (valid for ~1 minute)\n- Client ID and secret are correct"
     },
     "abort": {
       "already_configured": "This cTrader account is already configured"

@@ -43,16 +43,14 @@ A Home Assistant custom integration for monitoring your cTrader trading account.
 
 ## Getting Your Credentials
 
-Follow these steps to set up authentication:
-
-### Step 1: Create Application (Portal)
+### Step 1: Register & Approve App
 
 1. Go to [cTrader OpenAPI Portal](https://openapi.ctrader.com)
-2. Create new application:
-   - **Name:** "Home Assistant cTrader Monitor"
-   - **Permissions:** Read-only (`accounts` scope)
-   - **Redirect URI:** `http://localhost:8123/auth/callback`
-3. Submit for Spotware approval (24-48 hours)
+2. **Create Application:**
+   - Name: "Home Assistant cTrader Monitor"
+   - Permissions: Read-only (`accounts` scope)
+   - Redirect URI: `http://localhost:8123/auth/callback`
+3. **Submit for Spotware approval** (24-48 hours)
 
 ### Step 2: Get App Credentials
 
@@ -60,70 +58,37 @@ Once approved, grab your:
 - **Client ID**
 - **Client Secret**
 
-### Step 3: Authenticate Your Account
+### Step 3: Add to Home Assistant
 
-Follow the [official OAuth 2.0 authentication flow](https://help.ctrader.com/open-api/account-authentication/#authentication-flow):
+1. Go to **Settings → Devices & Services**
+2. Click **Create Integration**
+3. Search for **cTrader Monitor**
+4. Enter your app credentials:
+   - **Client ID** (from app portal)
+   - **Client Secret** (from app portal)
+   - **Account ID** (your cTID account number)
+5. Click **Submit**
 
-1. Open this authorization URI in your browser:
-```
-https://id.ctrader.com/my/settings/openapi/grantingaccess/?client_id={CLIENT_ID}&redirect_uri=http://localhost:8123/auth/callback&scope=accounts&product=web
-```
+### Step 4: Authorize Account (Automatic!)
 
-2. Replace `{CLIENT_ID}` with your actual Client ID
-3. Log in with your cTID
-4. Select account(s) you want to authorize → **Allow access**
-5. You'll be redirected with an `code` parameter in the URL
+The integration will:
+1. **Generate an authorization link** for you
+2. **Show it in setup** — click it or copy the URL
+3. **You'll log in** with your cTID and approve access
+4. **You'll be redirected** with an authorization code
+5. **Paste the code** back into Home Assistant setup
 
-### Step 4: Exchange Code for Access Token
-
-Make this REST API call:
-
-```bash
-curl -X GET 'https://openapi.ctrader.com/apps/token?grant_type=authorization_code&code={AUTHORIZATION_CODE}&redirect_uri=http://localhost:8123/auth/callback&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}'
-```
-
-Replace:
-- `{AUTHORIZATION_CODE}` - from redirect URL
-- `{CLIENT_ID}` - your client ID
-- `{CLIENT_SECRET}` - your client secret
-
-**Response will contain:**
-```json
-{
-  "accessToken": "YOUR_ACCESS_TOKEN_HERE",
-  "refreshToken": "YOUR_REFRESH_TOKEN",
-  "expiresIn": 2628000
-}
-```
-
-### Step 5: Get Your Account ID
-
-1. Log into your cTrader platform
-2. View account number in **Account Settings**
-
-### Step 6: Add to Home Assistant
-
-1. **Settings → Devices & Services**
-2. Search for **cTrader Monitor**
-3. Enter all OAuth credentials:
-   - **Access Token** (from step 4 response)
-   - **Refresh Token** (from step 4 response)
-   - **Client ID** (from app credentials)
-   - **Client Secret** (from app credentials)
-   - **Account ID** (from step 5)
+The integration **automatically exchanges the code for access + refresh tokens** — no manual REST calls needed! 🎯
 
 ### Automatic Token Refresh ✅
 
-The integration automatically handles token refresh! Here's what happens:
+- ✅ Tokens obtained automatically from auth code
+- ✅ Token expiry monitored (tokens last ~30 days)
+- ✅ Automatically refreshes 5 minutes before expiry
+- ✅ New tokens stored in Home Assistant
+- ✅ Infinite renewal (refresh token never expires)
 
-- ✅ Monitors token expiry (tokens last ~30 days)
-- ✅ Refreshes token automatically 5 minutes before expiry
-- ✅ Stores new tokens in Home Assistant config
-- ✅ No manual intervention needed
-
-The `refresh_token` is the key — it never expires and allows unlimited refreshes.
-
-**Security Note:** Keep all tokens/credentials private. Store them only in Home Assistant config.
+**Security:** All tokens/credentials stored securely in Home Assistant config.
 
 ## Sensors
 
