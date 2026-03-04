@@ -114,7 +114,7 @@ entities:
   - sensor.ctrader_open_trades
 ```
 
-### Open Trades Card with Profit
+### Open Trades Card
 
 ```yaml
 type: markdown

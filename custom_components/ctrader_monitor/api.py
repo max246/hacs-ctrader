@@ -5,8 +5,6 @@ import struct
 import time
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-
 from .proto.OpenApiCommonMessages_pb2 import ProtoMessage
 from .proto.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
@@ -22,6 +20,7 @@ from .proto.OpenApiMessages_pb2 import (
     ProtoOASymbolsListReq,
     ProtoOASymbolsListRes,
     ProtoOASubscribeSpotsReq,
+    ProtoOAUnsubscribeSpotsReq,
     ProtoOASpotEvent,
     ProtoOAErrorRes,
 )
@@ -58,6 +57,7 @@ class CTraderProtoClient:
         self._pending: Dict[int, asyncio.Future] = {}
         self._msg_id = 1
         self._listener_task: Optional[asyncio.Task] = None
+        self._push_queue: asyncio.Queue = asyncio.Queue()
 
     async def connect(self):
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port, ssl=True)
@@ -116,6 +116,9 @@ class CTraderProtoClient:
                             self._pending.pop(msg_id).set_result(envelope)
                     except ValueError:
                         pass
+                else:
+                    # Push event (e.g. ProtoOASpotEvent) — no clientMsgId
+                    await self._push_queue.put(envelope)
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -188,53 +191,70 @@ class CTraderAPI:
 
         return client
 
-    async def _fetch_live_prices(self, symbols: List[str]) -> Dict[str, float]:
-        """Fetch live forex prices from Frankfurter API (free, no auth, ECB data).
-        
-        Returns dict of symbol -> price (e.g., {'EURUSD': 1.16429})
+    async def _fetch_broker_spot_prices(
+        self,
+        client: "CTraderProtoClient",
+        symbol_ids: List[int],
+        symbol_digits: Dict[int, int],
+    ) -> Dict[int, Dict[str, float]]:
+        """Subscribe to broker spot prices and collect first bid/ask for each symbol.
+
+        Returns dict of symbolId -> {'bid': float, 'ask': float} with prices already
+        scaled using digit precision (e.g. raw 116429 / 10^5 = 1.16429).
         """
-        prices = {}
-        if not symbols:
-            return prices
-        
+        if not symbol_ids:
+            return {}
+
+        # Subscribe to spots for all required symbols
+        sub_req = ProtoOASubscribeSpotsReq()
+        sub_req.ctidTraderAccountId = self._ctid
+        for sid in symbol_ids:
+            sub_req.symbolId.append(sid)
+        await client.send(sub_req)
+
+        prices: Dict[int, Dict[str, float]] = {}
+        pending = set(symbol_ids)
+        deadline = asyncio.get_event_loop().time() + 8
+
+        while pending:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                envelope = await asyncio.wait_for(client._push_queue.get(), timeout=remaining)
+                # Try to parse as SpotEvent
+                spot = ProtoOASpotEvent()
+                spot.ParseFromString(envelope.payload)
+                sid = int(spot.symbolId) if spot.symbolId else None
+                if sid and sid in pending:
+                    digits = symbol_digits.get(sid, 5)
+                    divisor = 10 ** digits
+                    bid_raw = spot.bid if spot.HasField("bid") else None
+                    ask_raw = spot.ask if spot.HasField("ask") else None
+                    prices[sid] = {
+                        "bid": bid_raw / divisor if bid_raw is not None else None,
+                        "ask": ask_raw / divisor if ask_raw is not None else None,
+                    }
+                    pending.discard(sid)
+                    _LOGGER.info(f"💰 Spot {sid}: bid={prices[sid]['bid']}, ask={prices[sid]['ask']}")
+            except asyncio.TimeoutError:
+                break
+            except Exception as e:
+                _LOGGER.debug(f"Spot parse error: {e}")
+
+        if pending:
+            _LOGGER.warning(f"⚠️ No spot price received for symbol IDs: {pending}")
+
+        # Unsubscribe
         try:
-            async with aiohttp.ClientSession() as session:
-                # frankfurter.app is free and requires no API key
-                # Format: https://api.frankfurter.app/latest?from=EUR&to=USD
-                for symbol in symbols:
-                    if len(symbol) < 6:
-                        continue
-                    
-                    base = symbol[:3]  # EUR from EURUSD
-                    target = symbol[3:6]  # USD from EURUSD
-                    
-                    url = "https://api.frankfurter.app/latest"
-                    params = {"from": base, "to": target}
-                    
-                    _LOGGER.debug(f"🌐 Fetching {symbol}: {base}/{target}")
-                    
-                    try:
-                        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                if "rates" in data:
-                                    rate = data["rates"].get(target)
-                                    if rate is not None:
-                                        prices[symbol] = float(rate)
-                                        _LOGGER.info(f"✅ {symbol} = {rate}")
-                                    else:
-                                        _LOGGER.warning(f"No {target} in rates")
-                                else:
-                                    _LOGGER.warning(f"Invalid response: {data}")
-                            else:
-                                _LOGGER.warning(f"HTTP {resp.status}")
-                    except asyncio.TimeoutError:
-                        _LOGGER.warning(f"Timeout for {symbol}")
-                        continue
-                            
+            unsub_req = ProtoOAUnsubscribeSpotsReq()
+            unsub_req.ctidTraderAccountId = self._ctid
+            for sid in symbol_ids:
+                unsub_req.symbolId.append(sid)
+            await client.send(unsub_req)
         except Exception as e:
-            _LOGGER.error(f"Failed to fetch live prices: {e}", exc_info=True)
-        
+            _LOGGER.debug(f"Unsubscribe spots error: {e}")
+
         return prices
 
     async def async_get_balance(self) -> Optional[Dict[str, Any]]:
@@ -302,65 +322,65 @@ class CTraderAPI:
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             
-            # --- Fetch live prices ONLY for symbols with open positions ---
-            active_symbols = set()
-            for pos in rec_res.position:
-                sym_id = int(pos.tradeData.symbolId)
-                sym = symbol_map.get(sym_id)
-                if sym:
-                    active_symbols.add(sym)
-            
-            active_symbols_list = list(active_symbols)
-            _LOGGER.info(f"📊 Fetching live prices for {len(active_symbols_list)} open symbols: {active_symbols_list}")
-            live_prices = await self._fetch_live_prices(active_symbols_list)
-            _LOGGER.info(f"📊 Fetched live prices result: {live_prices}")
-            
+            # --- Fetch live broker spot prices for all symbols with open positions ---
+            active_sym_ids = list({int(pos.tradeData.symbolId) for pos in rec_res.position})
+            _LOGGER.info(f"📊 Fetching broker spot prices for {len(active_sym_ids)} symbol IDs: {active_sym_ids}")
+            spot_prices = await self._fetch_broker_spot_prices(client, active_sym_ids, symbol_digits)
+            _LOGGER.info(f"📊 Broker spot prices: { {symbol_map.get(k, k): v for k, v in spot_prices.items()} }")
+
             # --- Build open trades with profit calculation ---
             open_trades = []
             for pos in rec_res.position:
                 try:
                     side = "BUY" if pos.tradeData.tradeSide == 1 else "SELL"
+                    direction = 1 if side == "BUY" else -1
                     sym_id = int(pos.tradeData.symbolId)
                     sym = symbol_map.get(sym_id, f"#{sym_id}")
-                    
-                    # Convert volume: cTrader uses microlots (10,000,000 = 1 lot)
-                    volume_microlots = int(pos.tradeData.volume)
-                    volume_lots = volume_microlots / 10000000  # 10,000,000 microlots = 1 lot
-                    
-                    # Entry price
+                    digits = symbol_digits.get(sym_id, 5)
+
+                    # Convert volume: cTrader uses 10,000,000 units = 1 lot
+                    volume_raw = int(pos.tradeData.volume)
+                    volume_lots = volume_raw / 10_000_000
+
+                    # Entry price (already scaled in pos.price)
                     entry_price = float(pos.price)
-                    
-                    # Current price: use live price from Yahoo Finance, fallback to entry
-                    current_price = live_prices.get(sym, entry_price)
-                    
-                    if current_price == entry_price and sym in live_prices:
-                        _LOGGER.debug(f"{sym}: Using live price {current_price}")
-                    elif sym not in live_prices:
-                        _LOGGER.warning(f"{sym}: No live price available, using entry price {entry_price}")
-                    
-                    # Simple profit formula: (current - entry) × volume_lots × 100,000
-                    # Standard forex lot size = 100,000 units
-                    lot_size = 100000
-                    
-                    if side == "BUY":
-                        price_diff = current_price - entry_price
+
+                    # Current price: BUY closes at Bid, SELL closes at Ask
+                    spot = spot_prices.get(sym_id)
+                    if spot:
+                        current_price = spot["bid"] if side == "BUY" else spot["ask"]
+                        if current_price is None:
+                            # fallback to whichever is available
+                            current_price = spot.get("ask") or spot.get("bid") or entry_price
                     else:
-                        price_diff = entry_price - current_price
-                    
-                    # Calculate profit
-                    unrealized_profit = round(price_diff * volume_lots * lot_size, 2)
-                    
-                    _LOGGER.debug(f"Position {sym} {side}: volume_microlots={volume_microlots}, volume_lots={volume_lots}, entry={entry_price}, current={current_price}, price_diff={price_diff}, profit={unrealized_profit}")
-                    
+                        current_price = None
+                        _LOGGER.warning(f"{sym}: No broker spot price, P&L unavailable")
+
+                    if current_price is not None:
+                        # P&L formula matching cli.py cmd_profit():
+                        # price_diff = (current - entry) * direction
+                        # pnl = price_diff * lots * 100_000  (standard forex lot size)
+                        price_diff = (current_price - entry_price) * direction
+                        unrealized_profit = round(price_diff * volume_lots * 100_000, 2)
+                    else:
+                        unrealized_profit = None
+
+                    _LOGGER.debug(
+                        f"Position {sym} {side}: volume_raw={volume_raw}, lots={volume_lots:.4f}, "
+                        f"entry={entry_price:.{digits}f}, current={current_price}, "
+                        f"price_diff={(current_price - entry_price) * direction if current_price else 'N/A'}, "
+                        f"profit={unrealized_profit}"
+                    )
+
                     open_trades.append({
                         "id": pos.positionId,
                         "symbol": sym,
                         "side": side,
                         "volume": round(volume_lots, 4),
-                        "entry_price": round(entry_price, 5),
-                        "current_price": round(current_price, 5),
-                        "stop_loss": round(pos.stopLoss, 5) if pos.stopLoss else None,
-                        "take_profit": round(pos.takeProfit, 5) if pos.takeProfit else None,
+                        "entry_price": round(entry_price, digits),
+                        "current_price": round(current_price, digits) if current_price is not None else None,
+                        "stop_loss": round(pos.stopLoss, digits) if pos.stopLoss else None,
+                        "take_profit": round(pos.takeProfit, digits) if pos.takeProfit else None,
                         "unrealized_profit": unrealized_profit,
                     })
                 except Exception as e:
