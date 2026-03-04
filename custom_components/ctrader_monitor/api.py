@@ -251,27 +251,9 @@ class CTraderAPI:
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             
-            # --- Subscribe to live spots for all open symbols ---
-            live_prices = {}  # symbol_id -> {"bid": x, "ask": y}
-            symbol_ids = set()
-            for pos in rec_res.position:
-                symbol_ids.add(int(pos.tradeData.symbolId))
-            
-            if symbol_ids:
-                # Subscribe to spots
-                spots_req = ProtoOASubscribeSpotsReq()
-                spots_req.ctidTraderAccountId = self._ctid
-                for sym_id in symbol_ids:
-                    spots_req.symbolId.append(sym_id)
-                try:
-                    spots_msg = await client.send(spots_req, timeout=5)
-                    # After subscription, wait briefly for spot events
-                    await asyncio.sleep(0.5)
-                    
-                    # Collect any spot events that arrived
-                    # For now, we'll use reconcile data which includes current prices in some cases
-                except Exception as e:
-                    _LOGGER.warning(f"Failed to subscribe to spots: {e}")
+            # NOTE: Live spot subscription is complex (async events).
+            # For now, using entry price as current (0 profit until we integrate async listener).
+            # TODO: Add proper async event listener for ProtoOASpotEvent
             
             # --- Build open trades with profit calculation ---
             open_trades = []
@@ -280,37 +262,31 @@ class CTraderAPI:
                     side = "BUY" if pos.tradeData.tradeSide == 1 else "SELL"
                     sym_id = int(pos.tradeData.symbolId)
                     sym = symbol_map.get(sym_id, f"#{sym_id}")
-                    volume_lots = int(pos.tradeData.volume) / 10000000
-                    entry_price = float(pos.price) if pos.price else 0
                     
-                    # Get current price from live prices (if available), otherwise entry
+                    # Convert volume: cTrader uses microlots (10,000 = 1 lot)
+                    volume_microlots = int(pos.tradeData.volume)
+                    volume_lots = volume_microlots / 1000000  # 1,000,000 microlots = 1 lot
+                    
+                    # Entry price
+                    entry_price = float(pos.price)
+                    
+                    # Current price: use entry for now (live spots not yet fully integrated)
+                    # TODO: integrate live spot event listener
                     current_price = entry_price
-                    if sym_id in live_prices:
-                        # For BUY, use bid; for SELL, use ask
-                        if side == "BUY":
-                            current_price = live_prices[sym_id].get("bid", entry_price)
-                        else:
-                            current_price = live_prices[sym_id].get("ask", entry_price)
                     
-                    # Calculate profit
-                    # Formula: profit = (current - entry) * volume_lots * standard_lot_size
-                    # Standard lot = 100,000 units (for forex pairs with 5 decimals)
-                    digits = symbol_digits.get(sym_id, 5)
-                    
-                    # Lot multiplier: how many units per lot
-                    # Most forex: 100,000 units per lot
-                    if digits >= 0:
-                        lot_multiplier = 100000
-                    else:
-                        lot_multiplier = 100000
+                    # Simple profit formula: (current - entry) × volume_lots × 100,000
+                    # Where 100,000 is the standard lot size for forex
+                    lot_size = 100000
                     
                     if side == "BUY":
                         price_diff = current_price - entry_price
                     else:
                         price_diff = entry_price - current_price
                     
-                    # Profit = price difference * volume (in lots) * lot size (units)
-                    unrealized_profit = round(price_diff * volume_lots * lot_multiplier, 2)
+                    # Calculate profit
+                    unrealized_profit = round(price_diff * volume_lots * lot_size, 2)
+                    
+                    _LOGGER.debug(f"Position {sym} {side}: volume_microlots={volume_microlots}, volume_lots={volume_lots}, entry={entry_price}, current={current_price}, price_diff={price_diff}, profit={unrealized_profit}")
                     
                     open_trades.append({
                         "id": pos.positionId,
@@ -324,7 +300,7 @@ class CTraderAPI:
                         "unrealized_profit": unrealized_profit,
                     })
                 except Exception as e:
-                    _LOGGER.warning(f"Error processing position {pos.positionId}: {e}")
+                    _LOGGER.error(f"Error processing position {pos.positionId}: {e}", exc_info=True)
                     continue
 
             # --- Closed deals (last 7 days) ---
