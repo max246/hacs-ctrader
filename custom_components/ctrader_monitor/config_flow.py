@@ -15,13 +15,14 @@ from .api import CTraderAPI
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "ctrader_monitor"
-REDIRECT_URI = "http://localhost:8123/auth/external/callback"
+DEFAULT_REDIRECT_URI = "http://localhost:8123/auth/external/callback"
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("client_id"): str,
         vol.Required("client_secret"): str,
         vol.Required("account_id"): str,
+        vol.Required("redirect_uri", default=DEFAULT_REDIRECT_URI): str,
     }
 )
 
@@ -30,6 +31,7 @@ async def exchange_authorization_code(
     client_id: str,
     client_secret: str,
     authorization_code: str,
+    redirect_uri: str = DEFAULT_REDIRECT_URI,
 ) -> Optional[Dict[str, Any]]:
     """Exchange authorization code for access and refresh tokens."""
     token_url = "https://openapi.ctrader.com/apps/token"
@@ -85,6 +87,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.client_id: Optional[str] = None
         self.client_secret: Optional[str] = None
         self.account_id: Optional[str] = None
+        self.redirect_uri: Optional[str] = None
 
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
@@ -96,6 +99,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.client_id = user_input["client_id"]
             self.client_secret = user_input["client_secret"]
             self.account_id = user_input["account_id"]
+            self.redirect_uri = user_input["redirect_uri"]
             return await self.async_step_auth()
 
         return self.async_show_form(
@@ -111,7 +115,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         auth_uri = (
             f"https://id.ctrader.com/my/settings/openapi/grantingaccess/"
             f"?client_id={self.client_id}"
-            f"&redirect_uri={REDIRECT_URI}"
+            f"&redirect_uri={self.redirect_uri}"
             f"&scope=accounts"
             f"&product=web"
         )
@@ -143,6 +147,7 @@ class CTraderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             client_id=self.client_id,
             client_secret=self.client_secret,
             authorization_code=code,
+            redirect_uri=self.redirect_uri,
         )
 
         if not token_response or "accessToken" not in token_response:
