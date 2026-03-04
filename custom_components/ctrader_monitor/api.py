@@ -5,6 +5,8 @@ import struct
 import time
 from typing import Any, Dict, List, Optional
 
+import aiohttp
+
 from .proto.OpenApiCommonMessages_pb2 import ProtoMessage
 from .proto.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
@@ -186,6 +188,39 @@ class CTraderAPI:
 
         return client
 
+    async def _fetch_live_prices(self, symbols: List[str]) -> Dict[str, float]:
+        """Fetch live forex prices from Yahoo Finance API.
+        
+        Returns dict of symbol -> price (e.g., {'EURUSD': 1.16429})
+        """
+        prices = {}
+        if not symbols:
+            return prices
+        
+        # Yahoo Finance uses format: EURUSD=X, GBPUSD=X, etc.
+        yahoo_symbols = [f"{s}=X" for s in symbols]
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Use yfinance-compatible endpoint or direct REST call
+                url = "https://query1.finance.yahoo.com/v7/finance/quote"
+                params = {"symbols": ",".join(yahoo_symbols)}
+                
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if "quoteResponse" in data and "result" in data["quoteResponse"]:
+                            for quote in data["quoteResponse"]["result"]:
+                                symbol = quote.get("symbol", "").replace("=X", "")
+                                price = quote.get("regularMarketPrice")
+                                if symbol and price:
+                                    prices[symbol] = float(price)
+                                    _LOGGER.debug(f"Live price: {symbol} = {price}")
+        except Exception as e:
+            _LOGGER.warning(f"Failed to fetch live prices from Yahoo Finance: {e}")
+        
+        return prices
+
     async def async_get_balance(self) -> Optional[Dict[str, Any]]:
         """Fetch account balance — used for validation too."""
         client = None
@@ -251,9 +286,10 @@ class CTraderAPI:
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
             
-            # NOTE: Live spot subscription is complex (async events).
-            # For now, using entry price as current (0 profit until we integrate async listener).
-            # TODO: Add proper async event listener for ProtoOASpotEvent
+            # --- Fetch live prices for all open symbols ---
+            symbol_names = list(symbol_map.values())
+            live_prices = await self._fetch_live_prices(symbol_names)
+            _LOGGER.debug(f"Fetched live prices: {live_prices}")
             
             # --- Build open trades with profit calculation ---
             open_trades = []
@@ -270,11 +306,13 @@ class CTraderAPI:
                     # Entry price
                     entry_price = float(pos.price)
                     
-                    # Current price: 
-                    # NOTE: ProtoOAPosition.price is ENTRY price only
-                    # We need live bid/ask from spot subscription (TODO: async listener)
-                    # For now, use entry price (profit will show 0)
-                    current_price = entry_price
+                    # Current price: use live price from Yahoo Finance, fallback to entry
+                    current_price = live_prices.get(sym, entry_price)
+                    
+                    if current_price == entry_price and sym in live_prices:
+                        _LOGGER.debug(f"{sym}: Using live price {current_price}")
+                    elif sym not in live_prices:
+                        _LOGGER.warning(f"{sym}: No live price available, using entry price {entry_price}")
                     
                     # Simple profit formula: (current - entry) × volume_lots × 1,000,000
                     # cTrader uses 1,000,000 as the standard multiplier
