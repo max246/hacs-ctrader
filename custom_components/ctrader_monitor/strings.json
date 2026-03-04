@@ -3,15 +3,15 @@
     "step": {
       "user": {
         "title": "Connect to cTrader",
-        "description": "Before setting up this integration:\n\n1. Register an application at https://openapi.ctrader.com\n2. Select Read-Only permissions\n3. Generate an Access Token in the portal\n4. Find your Account ID in cTrader platform settings\n\nThen enter your credentials below.",
+        "description": "Before setting up this integration, follow the official cTrader app creation guide at https://help.ctrader.com/open-api/creating-new-app/\n\nYou'll need to:\n1. Register your application at https://openapi.ctrader.com\n2. Get approval from Spotware\n3. Generate an Access Token (read-only)\n4. Find your Account ID in cTrader platform\n\nThen enter your credentials below.",
         "data": {
-          "access_token": "Access Token (from cTrader OpenAPI portal)",
+          "access_token": "Access Token (from approved cTrader app)",
           "account_id": "Account ID (your account number)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid access token or account ID. Check that:\n- Token is valid and not expired\n- Token has Read permissions enabled\n- Account ID is correct"
+      "invalid_auth": "Invalid credentials. Verify:\n- Access token is from an approved cTrader app\n- Token hasn't expired\n- Token has read-only permissions\n- Account ID is correct"
     },
     "abort": {
       "already_configured": "This cTrader account is already configured"
