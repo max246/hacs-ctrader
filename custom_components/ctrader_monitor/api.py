@@ -202,22 +202,35 @@ class CTraderAPI:
         
         try:
             async with aiohttp.ClientSession() as session:
-                # Use yfinance-compatible endpoint or direct REST call
                 url = "https://query1.finance.yahoo.com/v7/finance/quote"
                 params = {"symbols": ",".join(yahoo_symbols)}
                 
+                _LOGGER.debug(f"Fetching live prices from Yahoo: {yahoo_symbols}")
+                
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    _LOGGER.debug(f"Yahoo response status: {resp.status}")
+                    
                     if resp.status == 200:
                         data = await resp.json()
+                        _LOGGER.debug(f"Yahoo response: {data}")
+                        
                         if "quoteResponse" in data and "result" in data["quoteResponse"]:
                             for quote in data["quoteResponse"]["result"]:
                                 symbol = quote.get("symbol", "").replace("=X", "")
                                 price = quote.get("regularMarketPrice")
+                                _LOGGER.debug(f"Quote: {symbol} / {quote.get('symbol')} -> price={price}")
+                                
                                 if symbol and price:
                                     prices[symbol] = float(price)
-                                    _LOGGER.debug(f"Live price: {symbol} = {price}")
+                                    _LOGGER.info(f"✅ Live price: {symbol} = {price}")
+                        else:
+                            _LOGGER.warning(f"Unexpected Yahoo response structure: {data}")
+                    else:
+                        _LOGGER.warning(f"Yahoo Finance API error: status {resp.status}")
+                        text = await resp.text()
+                        _LOGGER.debug(f"Response body: {text}")
         except Exception as e:
-            _LOGGER.warning(f"Failed to fetch live prices from Yahoo Finance: {e}")
+            _LOGGER.error(f"Failed to fetch live prices from Yahoo Finance: {e}", exc_info=True)
         
         return prices
 
