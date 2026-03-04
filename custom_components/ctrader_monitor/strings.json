@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "cTrader App Credentials",
-        "description": "Before starting:\n1. Register your app at https://openapi.ctrader.com\n2. Get Spotware approval\n3. Set redirect URI to: http://localhost:8123/auth/external/callback\n\nThen enter your app credentials below.",
+        "description": "Before starting, register your app at https://openapi.ctrader.com and get Spotware approval.\n\nEnter your app credentials below.",
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
@@ -11,20 +11,25 @@
           "redirect_uri": "Redirect URI (must match the one registered in your cTrader app)"
         }
       },
-      "auth": {
-        "title": "Authorize cTrader Account",
-        "description": "Click the button below to open the cTrader authorization page. Log in with your cTID and allow access. You'll be redirected back automatically."
+      "open_url": {
+        "title": "Authorize Your Account",
+        "description": "Open the link below in your browser to authorize this integration with your cTrader account:\n\n**{auth_uri}**\n\nLog in with your cTID and click **Allow access**. You'll be redirected to your redirect URI with a `code` parameter in the URL.\n\nOnce done, click **Next** to enter the code."
+      },
+      "auth_code": {
+        "title": "Enter Authorization Code",
+        "description": "From the redirect URL, copy the value of the `code` parameter and paste it below.\n\nExample: `https://your-redirect-uri/?code=XXXXXXXX` → paste `XXXXXXXX`",
+        "data": {
+          "authorization_code": "Authorization Code"
+        }
       }
     },
     "error": {
-      "invalid_auth": "Authorization failed. Check your Client ID and Secret.",
+      "invalid_auth": "Could not authenticate with those tokens. Check your credentials and try again.",
+      "token_exchange_failed": "Failed to exchange the authorization code. Make sure the code is correct and hasn't expired (valid for ~1 minute).",
       "unknown": "Unexpected error. Check HA logs."
     },
     "abort": {
-      "already_configured": "This cTrader account is already configured",
-      "missing_code": "No authorization code received from cTrader.",
-      "token_exchange_failed": "Failed to exchange authorization code for tokens. Try again.",
-      "invalid_auth": "Tokens are invalid. Check your credentials and try again."
+      "already_configured": "This cTrader account is already configured"
     }
   }
 }
