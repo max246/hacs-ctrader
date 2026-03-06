@@ -25,8 +25,6 @@ from .proto.OpenApiMessages_pb2 import (
     ProtoOAUnsubscribeSpotsReq,
     ProtoOASpotEvent,
     ProtoOAErrorRes,
-    ProtoOAGetPositionUnrealizedPnlReq,
-    ProtoOAGetPositionUnrealizedPnlRes,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -442,19 +440,10 @@ class CTraderAPI:
                     "profit": profit,
                 })
 
-            # Fetch real equity directly from broker API
-            try:
-                equity_req = ProtoOAGetPositionUnrealizedPnlReq()
-                equity_req.ctidTraderAccountId = self._ctid
-                equity_msg = await client.send(equity_req)
-                equity_res = _extract(equity_msg, ProtoOAGetPositionUnrealizedPnlRes)
-                equity_divisor = 10 ** equity_res.moneyDigits if equity_res.moneyDigits else 100
-                balance['equity'] = round(balance['balance'] + equity_res.totalUnrealizedGrossProfit / equity_divisor, 2)
-                _LOGGER.info(f"⏱️ [UPDATE] Equity from API: ${balance['equity']}")
-            except Exception as eq_err:
-                _LOGGER.warning(f"⚠️ Equity API failed, falling back to calculated: {eq_err}")
-                total_unrealized = sum(t['unrealized_profit'] for t in open_trades if t['unrealized_profit'] is not None)
-                balance['equity'] = round(balance['balance'] + total_unrealized, 2)
+            # Real equity = balance + sum of unrealized P&L across all open positions
+            total_unrealized = sum(t['unrealized_profit'] for t in open_trades if t['unrealized_profit'] is not None)
+            balance['equity'] = round(balance['balance'] + total_unrealized, 2)
+            _LOGGER.info(f"⏱️ [UPDATE] Equity: ${balance['equity']} (bal=${balance['balance']} + unrealized=${round(total_unrealized, 2)})")
 
             _LOGGER.info(f"✅ [UPDATE] Complete in {_time.monotonic()-_t0:.1f}s — bal=${balance['balance']} equity=${balance['equity']} open={len(open_trades)} closed={len(closed_trades)}")
             return {
