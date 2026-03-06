@@ -50,13 +50,19 @@ class CTraderBalanceSensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = "USD"
 
     @property
-    def native_value(self) -> float:
+    def native_value(self):
         """Return the balance."""
-        if self.coordinator.data:
-            balance = self.coordinator.data.get("balance")
-            if balance:
-                return round(balance.get("balance", 0), 2)
-        return 0
+        if not self.coordinator.data:
+            return None
+        balance = self.coordinator.data.get("balance")
+        if balance:
+            return round(balance.get("balance", 0), 2)
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return extra attributes."""
+        return {"last_updated": self.coordinator.last_update_success}
 
 
 class CTraderEquitySensor(CoordinatorEntity, SensorEntity):
@@ -74,13 +80,14 @@ class CTraderEquitySensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = "USD"
 
     @property
-    def native_value(self) -> float:
+    def native_value(self):
         """Return the equity."""
-        if self.coordinator.data:
-            balance = self.coordinator.data.get("balance")
-            if balance:
-                return round(balance.get("equity", 0), 2)
-        return 0
+        if not self.coordinator.data:
+            return None
+        balance = self.coordinator.data.get("balance")
+        if balance:
+            return round(balance.get("equity", 0), 2)
+        return None
 
 
 class CTraderMarginUsedSensor(CoordinatorEntity, SensorEntity):
@@ -98,13 +105,14 @@ class CTraderMarginUsedSensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = "USD"
 
     @property
-    def native_value(self) -> float:
+    def native_value(self):
         """Return margin used."""
-        if self.coordinator.data:
-            balance = self.coordinator.data.get("balance")
-            if balance:
-                return round(balance.get("margin_used", 0), 2)
-        return 0
+        if not self.coordinator.data:
+            return None
+        balance = self.coordinator.data.get("balance")
+        if balance:
+            return round(balance.get("margin_used", 0), 2)
+        return None
 
 
 class CTraderOpenTradesCountSensor(CoordinatorEntity, SensorEntity):
@@ -121,22 +129,21 @@ class CTraderOpenTradesCountSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = "cTrader Open Trades"
 
     @property
-    def native_value(self) -> int:
+    def native_value(self):
         """Return count of open trades."""
-        if self.coordinator.data:
-            open_trades = self.coordinator.data.get("open_trades", [])
-            return len(open_trades)
-        return 0
+        if not self.coordinator.data:
+            return None
+        return len(self.coordinator.data.get("open_trades", []))
 
     @property
     def extra_state_attributes(self) -> dict:
         """Return extra attributes with open trade details."""
-        if self.coordinator.data:
-            open_trades = self.coordinator.data.get("open_trades", [])
-            return {
-                "open_trades": open_trades,
-            }
-        return {}
+        if not self.coordinator.data:
+            return {"last_updated": self.coordinator.last_update_success}
+        return {
+            "open_trades": self.coordinator.data.get("open_trades", []),
+            "last_updated": self.coordinator.last_update_success,
+        }
 
 
 class CTraderClosedTradesSensor(CoordinatorEntity, SensorEntity):
@@ -154,17 +161,18 @@ class CTraderClosedTradesSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         """Return recent closed trades summary."""
-        if self.coordinator.data:
-            closed_trades = self.coordinator.data.get("closed_trades", [])
-            return f"{len(closed_trades)} recent"
-        return "0 recent"
+        if not self.coordinator.data:
+            return None
+        closed_trades = self.coordinator.data.get("closed_trades", [])
+        return f"{len(closed_trades)} recent"
 
     @property
     def extra_state_attributes(self) -> dict:
         """Return extra attributes with trade details."""
-        if self.coordinator.data:
-            closed_trades = self.coordinator.data.get("closed_trades", [])
-            return {
-                "last_closed_trades": closed_trades[:5],  # Last 5 trades
-            }
-        return {}
+        if not self.coordinator.data:
+            return {"last_updated": self.coordinator.last_update_success}
+        closed_trades = self.coordinator.data.get("closed_trades", [])
+        return {
+            "last_closed_trades": closed_trades[:5],
+            "last_updated": self.coordinator.last_update_success,
+        }

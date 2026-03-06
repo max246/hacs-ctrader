@@ -5,6 +5,8 @@ import struct
 import time
 from typing import Any, Dict, List, Optional
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 from .proto.OpenApiCommonMessages_pb2 import ProtoMessage
 from .proto.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
@@ -422,8 +424,8 @@ class CTraderAPI:
             }
 
         except Exception as e:
-            _LOGGER.error(f"async_update error: {e}")
-            return {"balance": None, "open_trades": [], "closed_trades": []}
+            _LOGGER.error(f"async_update error: {e}", exc_info=True)
+            raise UpdateFailed(f"cTrader API error: {e}") from e
         finally:
             if client:
                 await client.disconnect()
