@@ -35,7 +35,17 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class CTraderBalanceSensor(CoordinatorEntity, SensorEntity):
+class CTraderBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base class for cTrader sensors — ensures coordinator push updates work."""
+
+    _attr_should_poll = False  # coordinator handles scheduling, not HA default poll
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator and push to HA."""
+        self.async_write_ha_state()
+
+
+class CTraderBalanceSensor(CTraderBaseSensor):
     """Sensor for account balance."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -65,7 +75,7 @@ class CTraderBalanceSensor(CoordinatorEntity, SensorEntity):
         return {"last_updated": self.coordinator.last_update_success}
 
 
-class CTraderEquitySensor(CoordinatorEntity, SensorEntity):
+class CTraderEquitySensor(CTraderBaseSensor):
     """Sensor for account equity."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -90,7 +100,7 @@ class CTraderEquitySensor(CoordinatorEntity, SensorEntity):
         return None
 
 
-class CTraderMarginUsedSensor(CoordinatorEntity, SensorEntity):
+class CTraderMarginUsedSensor(CTraderBaseSensor):
     """Sensor for margin used."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -115,7 +125,7 @@ class CTraderMarginUsedSensor(CoordinatorEntity, SensorEntity):
         return None
 
 
-class CTraderOpenTradesCountSensor(CoordinatorEntity, SensorEntity):
+class CTraderOpenTradesCountSensor(CTraderBaseSensor):
     """Sensor for count of open trades."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -146,7 +156,7 @@ class CTraderOpenTradesCountSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class CTraderClosedTradesSensor(CoordinatorEntity, SensorEntity):
+class CTraderClosedTradesSensor(CTraderBaseSensor):
     """Sensor for recent closed trades info."""
 
     _attr_icon = "mdi:history"
