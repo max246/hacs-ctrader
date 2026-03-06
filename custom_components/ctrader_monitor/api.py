@@ -286,9 +286,13 @@ class CTraderAPI:
 
     async def async_update(self) -> Dict[str, Any]:
         """Fetch all data in a single connection: balance + open positions + closed deals + live prices."""
+        import time as _time
         client = None
+        _t0 = _time.monotonic()
         try:
+            _LOGGER.info("⏱️ [UPDATE] Starting async_update...")
             client = await self._connect_and_auth()
+            _LOGGER.info(f"⏱️ [UPDATE] Connected & authed in {_time.monotonic()-_t0:.1f}s")
 
             # --- Balance ---
             trader_req = ProtoOATraderReq()
@@ -304,6 +308,7 @@ class CTraderAPI:
                 "currency": "USD",
                 "leverage": trader.leverageInCents // 100,
             }
+            _LOGGER.info(f"⏱️ [UPDATE] Balance fetched: ${balance['balance']} in {_time.monotonic()-_t0:.1f}s")
 
             # --- Symbol map + metadata ---
             sym_req = ProtoOASymbolsListReq()
@@ -317,18 +322,20 @@ class CTraderAPI:
                     symbol_digits[int(s.symbolId)] = int(s.digits) if hasattr(s, 'digits') else 5
                 except Exception:
                     symbol_digits[int(s.symbolId)] = 5
+            _LOGGER.info(f"⏱️ [UPDATE] Symbol map fetched ({len(symbol_map)} symbols) in {_time.monotonic()-_t0:.1f}s")
 
             # --- Open positions ---
             rec_req = ProtoOAReconcileReq()
             rec_req.ctidTraderAccountId = self._ctid
             rec_msg = await client.send(rec_req)
             rec_res = _extract(rec_msg, ProtoOAReconcileRes)
-            
+            _LOGGER.info(f"⏱️ [UPDATE] Positions fetched ({len(rec_res.position)} open) in {_time.monotonic()-_t0:.1f}s")
+
             # --- Fetch live broker spot prices for all symbols with open positions ---
             active_sym_ids = list({int(pos.tradeData.symbolId) for pos in rec_res.position})
-            _LOGGER.info(f"📊 Fetching broker spot prices for {len(active_sym_ids)} symbol IDs: {active_sym_ids}")
+            _LOGGER.info(f"⏱️ [UPDATE] Fetching spot prices for {len(active_sym_ids)} symbols...")
             spot_prices = await self._fetch_broker_spot_prices(client, active_sym_ids, symbol_digits)
-            _LOGGER.info(f"📊 Broker spot prices: { {symbol_map.get(k, k): v for k, v in spot_prices.items()} }")
+            _LOGGER.info(f"⏱️ [UPDATE] Spot prices done in {_time.monotonic()-_t0:.1f}s: { {symbol_map.get(k, k): v for k, v in spot_prices.items()} }")
 
             # Get USDJPY rate for JPY pair P&L conversion
             usdjpy_rate = None
@@ -404,6 +411,7 @@ class CTraderAPI:
                     continue
 
             # --- Closed deals (last 7 days) ---
+            _LOGGER.info(f"⏱️ [UPDATE] Fetching closed deals...")
             deal_req = ProtoOADealListReq()
             deal_req.ctidTraderAccountId = self._ctid
             deal_req.fromTimestamp = int((time.time() - 7 * 24 * 3600) * 1000)
@@ -411,6 +419,7 @@ class CTraderAPI:
             deal_req.maxRows = 20
             deal_msg = await client.send(deal_req)
             deal_res = _extract(deal_msg, ProtoOADealListRes)
+            _LOGGER.info(f"⏱️ [UPDATE] Closed deals fetched ({len(deal_res.deal)}) in {_time.monotonic()-_t0:.1f}s")
             closed_trades = []
             for deal in deal_res.deal:
                 side = "BUY" if deal.tradeSide == 1 else "SELL"
@@ -431,6 +440,7 @@ class CTraderAPI:
                     "profit": profit,
                 })
 
+            _LOGGER.info(f"✅ [UPDATE] Complete in {_time.monotonic()-_t0:.1f}s — bal=${balance['balance']} open={len(open_trades)} closed={len(closed_trades)}")
             return {
                 "balance": balance,
                 "open_trades": open_trades,
@@ -438,7 +448,7 @@ class CTraderAPI:
             }
 
         except Exception as e:
-            _LOGGER.error(f"async_update error: {e}", exc_info=True)
+            _LOGGER.error(f"❌ [UPDATE] Failed after {_time.monotonic()-_t0:.1f}s: {e}", exc_info=True)
             raise UpdateFailed(f"cTrader API error: {e}") from e
         finally:
             if client:
