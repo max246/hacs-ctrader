@@ -440,7 +440,11 @@ class CTraderAPI:
                     "profit": profit,
                 })
 
-            _LOGGER.info(f"✅ [UPDATE] Complete in {_time.monotonic()-_t0:.1f}s — bal=${balance['balance']} open={len(open_trades)} closed={len(closed_trades)}")
+            # Calculate real equity = balance + sum of unrealized P&L
+            total_unrealized = sum(t['unrealized_profit'] for t in open_trades if t['unrealized_profit'] is not None)
+            balance['equity'] = round(balance['balance'] + total_unrealized, 2)
+
+            _LOGGER.info(f"✅ [UPDATE] Complete in {_time.monotonic()-_t0:.1f}s — bal=${balance['balance']} equity=${balance['equity']} open={len(open_trades)} closed={len(closed_trades)}")
             return {
                 "balance": balance,
                 "open_trades": open_trades,
