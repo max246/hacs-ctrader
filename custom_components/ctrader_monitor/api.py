@@ -330,6 +330,17 @@ class CTraderAPI:
             spot_prices = await self._fetch_broker_spot_prices(client, active_sym_ids, symbol_digits)
             _LOGGER.info(f"📊 Broker spot prices: { {symbol_map.get(k, k): v for k, v in spot_prices.items()} }")
 
+            # Get USDJPY rate for JPY pair P&L conversion
+            usdjpy_rate = None
+            usdjpy_sym_id = next((sid for sid, name in symbol_map.items() if name == 'USDJPY'), None)
+            if usdjpy_sym_id:
+                _usdjpy_digits = symbol_digits.get(usdjpy_sym_id, 3)
+                _usdjpy_spots = await self._fetch_broker_spot_prices(client, [usdjpy_sym_id], {usdjpy_sym_id: _usdjpy_digits})
+                _usdjpy_spot = _usdjpy_spots.get(usdjpy_sym_id)
+                if _usdjpy_spot:
+                    usdjpy_rate = _usdjpy_spot.get('bid') or _usdjpy_spot.get('ask')
+            _LOGGER.info(f"USDJPY rate for conversion: {usdjpy_rate}")
+
             # --- Build open trades with profit calculation ---
             open_trades = []
             for pos in rec_res.position:
@@ -364,6 +375,9 @@ class CTraderAPI:
                         # pnl = price_diff * lots * 100_000  (standard forex lot size)
                         price_diff = (current_price - entry_price) * direction
                         unrealized_profit = round(price_diff * volume_lots * 100_000, 2)
+                        # Convert JPY-quoted pairs to USD
+                        if sym.endswith('JPY') and usdjpy_rate and usdjpy_rate > 0:
+                            unrealized_profit = round(unrealized_profit / usdjpy_rate, 2)
                     else:
                         unrealized_profit = None
 
